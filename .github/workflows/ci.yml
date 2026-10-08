@@ -1,0 +1,36 @@
+name: Verify Peer
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p peer-core --locked
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+  mac-desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run build:test-app
+      - run: npm run test:desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: desktop-test-results, path: test-results }

@@ -1,0 +1,1208 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+import HighlightWorker from "@pierre/diffs/worker/worker.js?worker";
+import { open, save, confirm } from "@tauri-apps/plugin-dialog";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { listen } from "@tauri-apps/api/event";
+import {
+  BookOpen,
+  Check,
+  ChevronRight,
+  Code2,
+  FileDiff,
+  FolderOpen,
+  GitBranch,
+  LoaderCircle,
+  MessageSquare,
+  RefreshCw,
+  ScanSearch,
+  Search,
+  Settings2,
+  SplitSquareHorizontal,
+  Text,
+  X,
+  ArrowRight,
+} from "lucide-react";
+import { api } from "./api";
+import {
+  defaultComparison,
+  defaultPreferences,
+  type Comparison,
+  type ImportedTheme,
+  type Preferences,
+  type ReviewComment,
+  type ReviewQueue,
+  type Snapshot,
+} from "./types";
+import { applyTheme, builtins, registerThemes, type Theme } from "./themes";
+import { parseDiff } from "./parse-diff";
+import { Viewer, type LoadedFile, type ViewerHandle } from "./Viewer";
+import { FileTree } from "./FileTree";
+import { Feedback, type Draft } from "./Feedback";
+import { Settings } from "./Settings";
+import { Modal } from "./Modal";
+import { HighlightCacheBudget } from "./HighlightCacheBudget";
+import { SourceCache } from "./memory";
+import { retainFile, sourceLines } from "./loaded-file";
+
+const poolOptions = {
+  workerFactory: () => new HighlightWorker(),
+  poolSize: 1,
+  totalASTLRUCacheSize: 12,
+};
+const highlighterOptions = {
+  theme: "inspector-github-light",
+  preferredHighlighter: "shiki-wasm" as const,
+  tokenizeMaxLineLength: 1500,
+  maxLineDiffLength: 1500,
+  lineDiffType: "word-alt" as const,
+};
+registerThemes(builtins);
+const emptyQueue: ReviewQueue = { comments: [], reviewed: {} };
+
+function limiter(concurrency: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async <T,>(task: () => Promise<T>): Promise<T> => {
+    if (active >= concurrency)
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    active++;
+    try {
+      return await task();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
+}
+const limit = limiter(3);
+
+export default function App() {
+  const [preferences, setPreferences] =
+    useState<Preferences>(defaultPreferences);
+  const [imported, setImported] = useState<ImportedTheme[]>([]);
+  const [ready, setReady] = useState(false);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<Record<string, LoadedFile>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [queue, setQueue] = useState<ReviewQueue>(emptyQueue);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [settings, setSettings] = useState(false);
+  const [feedback, setFeedback] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, Draft | undefined>>({});
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickFilter, setQuickFilter] = useState("");
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [lineInput, setLineInput] = useState("");
+  const [exportText, setExportText] = useState<string | null>(null);
+  const [systemDark, setSystemDark] = useState(
+    matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  const viewer = useRef<ViewerHandle>(null);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
+  const codeCache = useRef(new SourceCache<LoadedFile>(8 * 1024 * 1024, 8));
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+  const selectionRef = useRef(selected);
+  selectionRef.current = selected;
+  const requests = useRef(new Map<string, Promise<LoadedFile>>());
+  const opening = useRef(0);
+  const prefWrites = useRef(Promise.resolve());
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const lastChanges = useRef<Comparison>(defaultComparison);
+  const scrollToRestore = useRef<number | null>(null);
+
+  const reportError = useCallback(
+    (error: unknown) =>
+      setError(error instanceof Error ? error.message : String(error)),
+    [],
+  );
+  const notify = useCallback((text: string) => {
+    setMessage(text);
+  }, []);
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(""), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+  useEffect(() => {
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const listener = () => setSystemDark(media.matches);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, []);
+  const themes = useMemo<Theme[]>(() => {
+    const themes = [...builtins, ...imported];
+    registerThemes(themes);
+    return themes;
+  }, [imported]);
+  const dark =
+    preferences.appearance.mode === "system"
+      ? systemDark
+      : preferences.appearance.mode === "dark";
+  const theme =
+    themes.find(
+      (t) =>
+        t.id ===
+        (dark
+          ? preferences.appearance.darkTheme
+          : preferences.appearance.lightTheme),
+    ) ?? builtins[dark ? 1 : 0];
+  useEffect(() => applyTheme(theme), [theme]);
+
+  const openRepository = useCallback(
+    async (path: string, comparison: Comparison | null = null) => {
+      const request = ++opening.current;
+      const previous = snapshotRef.current;
+      const oldPath = previous?.files.find(
+        (f) => f.id === selectionRef.current,
+      )?.path;
+      const previousScroll = viewer.current?.scrollTop() ?? 0;
+      setBusy(true);
+      setError("");
+      try {
+        await prefWrites.current;
+        await api.savePreferences(preferencesRef.current);
+        const next = await api.open(path, comparison);
+        const [nextQueue, nextBranches] = await Promise.all([
+          api.queue(next.id),
+          api.branches(next.id),
+        ]);
+        if (request !== opening.current) return;
+        snapshotRef.current = next;
+        loadedRef.current = {};
+        codeCache.current.clear();
+        setLoaded({});
+        setErrors({});
+        setSnapshot(next);
+        setQueue(nextQueue);
+        setBranches(nextBranches);
+        const stored = preferencesRef.current.sessions[next.repository.root];
+        const wantedPath =
+          previous?.repository.root === next.repository.root
+            ? oldPath
+            : stored?.selectedPath;
+        const nextSelected =
+          next.files.find((f) => f.path === wantedPath)?.id ??
+          next.files[0]?.id ??
+          null;
+        setSelected(nextSelected);
+        lastChanges.current =
+          next.comparison.view === "changes"
+            ? next.comparison
+            : (stored?.lastChanges ?? defaultComparison);
+        scrollToRestore.current =
+          previous?.queueId === next.queueId
+            ? previousScroll
+            : stored?.comparison.view === next.comparison.view
+              ? stored.scrollTop
+              : 0;
+        setPreferences((p) => ({
+          ...p,
+          lastRepository: next.repository.root,
+          recentRepositories: [
+            next.repository.root,
+            ...p.recentRepositories.filter((v) => v !== next.repository.root),
+          ].slice(0, 12),
+          sessions: {
+            ...p.sessions,
+            [next.repository.root]: {
+              comparison: next.comparison,
+              lastChanges: lastChanges.current,
+              selectedPath:
+                next.files.find((f) => f.id === nextSelected)?.path ?? null,
+              scrollTop: scrollToRestore.current ?? 0,
+            },
+          },
+        }));
+      } catch (e) {
+        if (request === opening.current) reportError(e);
+      } finally {
+        if (request === opening.current) setBusy(false);
+      }
+    },
+    [reportError],
+  );
+
+  useEffect(() => {
+    let active = true;
+    api
+      .bootstrap()
+      .then((data) => {
+        if (!active) return;
+        preferencesRef.current = data.preferences;
+        setPreferences(data.preferences);
+        setImported(data.themes);
+        setReady(true);
+        if (data.preferences.lastRepository)
+          void openRepository(data.preferences.lastRepository, null);
+      })
+      .catch((e) => {
+        reportError(e);
+        setReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [openRepository, reportError]);
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(() => {
+      prefWrites.current = prefWrites.current
+        .then(() => api.savePreferences(preferences))
+        .catch(reportError);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [preferences, ready, reportError]);
+
+  const loadFile = useCallback(
+    async (id: string, force = false): Promise<LoadedFile> => {
+      const active = snapshotRef.current;
+      if (!active) throw new Error("Open a repository first");
+      const cached =
+        active.comparison.view === "code"
+          ? codeCache.current.get(id)
+          : loadedRef.current[id];
+      if (cached && (!cached.content.deferred || !force)) return cached;
+      const entry = active.files.find((f) => f.id === id);
+      if (!entry) throw new Error("File not found");
+      const key = `${active.id}:${id}:${force}`;
+      const pending = requests.current.get(key);
+      if (pending) return pending;
+      const work = limit(async () => {
+        if (snapshotRef.current?.id !== active.id)
+          throw new Error("Repository view changed");
+        try {
+          const content = await api.read(active.id, id, force);
+          const diff =
+            active.comparison.view === "changes" &&
+            !content.deferred &&
+            (content.oldContent !== null || content.newContent !== null)
+              ? await parseDiff(content)
+              : undefined;
+          const value = retainFile(content, diff);
+          if (snapshotRef.current?.id === active.id) {
+            loadedRef.current =
+              active.comparison.view === "code"
+                ? codeCache.current.set(
+                    id,
+                    value,
+                    new Set([selectionRef.current ?? id]),
+                  )
+                : { ...loadedRef.current, [id]: value };
+            setLoaded(loadedRef.current);
+            setErrors((previous) => {
+              const next = { ...previous };
+              delete next[id];
+              return next;
+            });
+          }
+          return value;
+        } catch (e) {
+          if (snapshotRef.current?.id === active.id)
+            setErrors((prev) => ({ ...prev, [id]: String(e) }));
+          throw e;
+        } finally {
+          requests.current.delete(key);
+        }
+      });
+      requests.current.set(key, work);
+      return work;
+    },
+    [],
+  );
+  const requestFile = useCallback(
+    (id: string, force = false) => {
+      void loadFile(id, force).catch(() => {});
+    },
+    [loadFile],
+  );
+  useEffect(() => {
+    if (snapshot && selected) requestFile(selected);
+  }, [snapshot, selected, requestFile]);
+  useEffect(() => {
+    if (selected && loaded[selected] && scrollToRestore.current !== null) {
+      const top = scrollToRestore.current;
+      scrollToRestore.current = null;
+      queueMicrotask(() => viewer.current?.restore(top));
+    }
+  }, [loaded, selected]);
+  const saveScroll = useCallback((top: number) => {
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      const s = snapshotRef.current;
+      if (!s) return;
+      setPreferences((p) => ({
+        ...p,
+        sessions: {
+          ...p.sessions,
+          [s.repository.root]: {
+            comparison: s.comparison,
+            lastChanges: lastChanges.current,
+            selectedPath:
+              s.files.find((f) => f.id === selectionRef.current)?.path ?? null,
+            scrollTop: top,
+          },
+        },
+      }));
+    }, 600);
+  }, []);
+  const followVisibleFile = useCallback((snapshotId: string, id: string) => {
+    // Restoration and explicit navigation own their scroll positions. Passive
+    // selection updates must not call selectFile, which would scroll again.
+    if (
+      snapshotRef.current?.id !== snapshotId ||
+      scrollToRestore.current !== null ||
+      selectionRef.current === id
+    )
+      return;
+    selectionRef.current = id;
+    setSelected(id);
+    setMatchIndex(0);
+  }, []);
+  const pickRepository = useCallback(async () => {
+    try {
+      const path = await open({
+        directory: true,
+        multiple: false,
+        title: "Open a Git repository",
+      });
+      if (typeof path === "string") await openRepository(path);
+    } catch (e) {
+      reportError(e);
+    }
+  }, [openRepository, reportError]);
+  const refresh = useCallback(() => {
+    const s = snapshotRef.current;
+    if (s) void openRepository(s.repository.root, s.comparison);
+  }, [openRepository]);
+  const changeComparison = useCallback(
+    (comparison: Comparison) => {
+      const s = snapshotRef.current;
+      if (s) void openRepository(s.repository.root, comparison);
+    },
+    [openRepository],
+  );
+  const selectFile = useCallback(
+    (id: string) => {
+      scrollToRestore.current = null;
+      setSelected(id);
+      selectionRef.current = id;
+      setMatchIndex(0);
+      requestFile(id);
+      queueMicrotask(() => viewer.current?.jump(id));
+      const s = snapshotRef.current;
+      if (s)
+        setPreferences((p) => ({
+          ...p,
+          sessions: {
+            ...p.sessions,
+            [s.repository.root]: {
+              comparison: s.comparison,
+              lastChanges: lastChanges.current,
+              selectedPath: s.files.find((f) => f.id === id)?.path ?? null,
+              scrollTop: 0,
+            },
+          },
+        }));
+    },
+    [requestFile],
+  );
+
+  useEffect(() => {
+    const menu = listen<string>("app-menu", ({ payload }) => {
+      if (payload === "open") void pickRepository();
+      if (payload === "settings") setSettings(true);
+      if (payload === "refresh") refresh();
+    });
+    const keys = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setQuickOpen(true);
+        setQuickFilter("");
+      }
+      if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFindOpen(true);
+        queueMicrotask(() =>
+          document
+            .querySelector<HTMLInputElement>('[aria-label="Find in file"]')
+            ?.focus(),
+        );
+      }
+      if (e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        setFindOpen(true);
+        queueMicrotask(() =>
+          document
+            .querySelector<HTMLInputElement>('[aria-label="Go to line"]')
+            ?.focus(),
+        );
+      }
+    };
+    window.addEventListener("keydown", keys);
+    return () => {
+      void menu.then((unlisten) => unlisten());
+      window.removeEventListener("keydown", keys);
+    };
+  }, [pickRepository, refresh]);
+
+  const reloadQueue = useCallback(async () => {
+    const s = snapshotRef.current;
+    if (!s) return;
+    const next = await api.queue(s.id);
+    if (snapshotRef.current?.id === s.id) setQueue(next);
+  }, []);
+  const beginComment = useCallback(
+    async (id: string, line?: number, side?: "old" | "new") => {
+      const s = snapshotRef.current;
+      if (!s) return;
+      setFeedback(true);
+      if (drafts[s.queueId]?.body.trim()) {
+        notify("Finish or discard your current draft before starting another.");
+        return;
+      }
+      try {
+        const { content } = await loadFile(id, true);
+        if (snapshotRef.current?.id !== s.id) return;
+        setDrafts((prev) => ({
+          ...prev,
+          [s.queueId]: {
+            fileId: id,
+            snapshotId: s.id,
+            fingerprint: content.fingerprint,
+            path: content.path,
+            line,
+            side,
+            body: "",
+          },
+        }));
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [drafts, loadFile, notify, reportError],
+  );
+  const submitComment = useCallback(async () => {
+    const s = snapshotRef.current;
+    if (!s) return;
+    const draft = drafts[s.queueId];
+    if (!draft?.body.trim()) return;
+    setSaving(true);
+    try {
+      await api.comment({
+        ...draft,
+        body: draft.body,
+        line: draft.line ?? null,
+        side: draft.side ?? null,
+      });
+      setDrafts((prev) => ({ ...prev, [s.queueId]: undefined }));
+      await reloadQueue();
+      notify("Comment saved");
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setSaving(false);
+    }
+  }, [drafts, reloadQueue, notify, reportError]);
+  const markReviewed = useCallback(
+    async (id: string, checked: boolean) => {
+      const s = snapshotRef.current;
+      if (!s) return;
+      try {
+        const value = await loadFile(id, true);
+        await api.reviewed(s.id, id, value.content.fingerprint, checked);
+        await reloadQueue();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [loadFile, reloadQueue, reportError],
+  );
+  const jumpToComment = useCallback(
+    (comment: ReviewComment) => {
+      const file = snapshotRef.current?.files.find(
+        (f) => f.path === comment.path,
+      );
+      if (!file || comment.outdated) {
+        notify(
+          "This comment retains its original location. Review its saved code context below.",
+        );
+        return;
+      }
+      setSelected(file.id);
+      requestFile(file.id);
+      queueMicrotask(() =>
+        viewer.current?.jump(file.id, comment.anchor.line, comment.anchor.side),
+      );
+    },
+    [notify, requestFile],
+  );
+  const copyFeedback = async () => {
+    if (!snapshot) return;
+    try {
+      const json = await api.export(snapshot.id);
+      try {
+        await writeText(json);
+        notify("Feedback copied as JSON");
+      } catch {
+        setExportText(json);
+      }
+    } catch (e) {
+      reportError(e);
+    }
+  };
+  const saveFeedback = async () => {
+    if (!snapshot) return;
+    try {
+      const path = await save({
+        defaultPath: `${snapshot.repository.name}-review.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (path) {
+        await api.saveExport(snapshot.id, path);
+        notify("Feedback saved");
+      }
+    } catch (e) {
+      reportError(e);
+    }
+  };
+  const clearFeedback = async () => {
+    if (!snapshot) return;
+    try {
+      if (
+        await confirm(
+          `Delete all ${queue.comments.length} comments in this review? Other review queues are kept.`,
+          {
+            title: "Clear feedback",
+            kind: "warning",
+            okLabel: "Clear comments",
+          },
+        )
+      ) {
+        await api.deleteComments(snapshot.queueId);
+        await reloadQueue();
+      }
+    } catch (e) {
+      reportError(e);
+    }
+  };
+  const importTheme = async () => {
+    try {
+      const path = await open({
+        title: "Import VS Code color theme",
+        filters: [{ name: "Color theme", extensions: ["json", "jsonc"] }],
+      });
+      if (typeof path === "string") {
+        const theme = await api.importTheme(path);
+        setImported((current) => [
+          ...current.filter((t) => t.id !== theme.id),
+          theme,
+        ]);
+        setPreferences((p) => ({
+          ...p,
+          appearance: {
+            ...p.appearance,
+            mode: theme.kind,
+            [theme.kind === "light" ? "lightTheme" : "darkTheme"]: theme.id,
+          },
+        }));
+        notify(`Imported ${theme.name}`);
+      }
+    } catch (e) {
+      reportError(e);
+    }
+  };
+  const removeTheme = async (id: string) => {
+    try {
+      await api.removeTheme(id);
+      setImported((current) => current.filter((t) => t.id !== id));
+      setPreferences((p) => ({
+        ...p,
+        appearance: {
+          ...p.appearance,
+          lightTheme:
+            p.appearance.lightTheme === id
+              ? "github-light"
+              : p.appearance.lightTheme,
+          darkTheme:
+            p.appearance.darkTheme === id
+              ? "github-dark"
+              : p.appearance.darkTheme,
+        },
+      }));
+    } catch (e) {
+      reportError(e);
+    }
+  };
+
+  const selectedEntry = snapshot?.files.find((f) => f.id === selected);
+  const selectedFile = selected ? loaded[selected] : undefined;
+  const matches = useMemo(() => {
+    if (!findText || !selectedFile) return [];
+    const results: { line: number; side: "old" | "new" }[] = [];
+    for (const side of (snapshot?.comparison.view === "changes"
+      ? ["new", "old"]
+      : ["new"]) as ("old" | "new")[]) {
+      sourceLines(selectedFile, side).forEach((line, i) => {
+        if (line.toLowerCase().includes(findText.toLowerCase()))
+          results.push({ line: i + 1, side });
+      });
+    }
+    return results;
+  }, [findText, selectedFile, snapshot?.comparison.view]);
+  const jumpMatch = (index: number) => {
+    if (!selected || !matches.length) return;
+    const i = ((index % matches.length) + matches.length) % matches.length;
+    setMatchIndex(i);
+    const match = matches[i];
+    viewer.current?.jump(selected, match.line, match.side);
+  };
+  const totalAdds =
+    snapshot?.files.reduce((sum, file) => sum + file.additions, 0) ?? 0;
+  const totalDeletes =
+    snapshot?.files.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
+
+  return (
+    <WorkerPoolContextProvider
+      poolOptions={poolOptions}
+      highlighterOptions={highlighterOptions}
+    >
+      <HighlightCacheBudget scope={snapshot?.id} />
+      <div
+        className="app"
+        data-repository={snapshot?.repository.name ?? ""}
+        data-loaded-files={Object.keys(loaded).length}
+      >
+        <header className="titlebar" data-tauri-drag-region>
+          <div className="app-wordmark" data-tauri-drag-region>
+            <ScanSearch size={17} />
+            <span>Peer</span>
+            <span className="preview-tag">LOCAL</span>
+          </div>
+          <div className="titlebar-actions">
+            <button
+              className="icon-button"
+              title="Settings (⌘ ,)"
+              aria-label="Settings"
+              onClick={() => setSettings(true)}
+            >
+              <Settings2 size={16} />
+            </button>
+          </div>
+        </header>
+        <div className="toolbar">
+          <button className="repository-button" onClick={pickRepository}>
+            <FolderOpen size={17} />
+            <span>{snapshot?.repository.name ?? "Open repository"}</span>
+            <ChevronRight size={13} />
+          </button>
+          {snapshot ? (
+            <>
+              <div className="view-switch">
+                <button
+                  className={
+                    snapshot.comparison.view === "code" ? "active" : ""
+                  }
+                  onClick={() =>
+                    changeComparison({ ...defaultComparison, view: "code" })
+                  }
+                >
+                  <Code2 size={15} />
+                  Code
+                </button>
+                <button
+                  className={
+                    snapshot.comparison.view === "changes" ? "active" : ""
+                  }
+                  onClick={() => changeComparison(lastChanges.current)}
+                >
+                  <FileDiff size={15} />
+                  Changes
+                </button>
+              </div>
+              <span className="branch-label">
+                <GitBranch size={14} />
+                {snapshot.repository.branch.startsWith("detached:")
+                  ? `Detached ${snapshot.repository.head?.slice(0, 7)}`
+                  : snapshot.repository.branch}
+              </span>
+              <div className="toolbar-spacer" />
+              <button
+                className="icon-button"
+                title="Find in file (⌘ F)"
+                aria-label="Find in file"
+                onClick={() => setFindOpen((v) => !v)}
+              >
+                <Search size={16} />
+              </button>
+              <button
+                className="icon-button"
+                title="Refresh repository (⌘ R)"
+                aria-label="Refresh repository"
+                disabled={busy}
+                onClick={refresh}
+              >
+                <RefreshCw size={16} className={busy ? "spin" : ""} />
+              </button>
+              <button
+                className={`feedback-toggle ${feedback ? "active" : ""}`}
+                onClick={() => setFeedback((v) => !v)}
+              >
+                <MessageSquare size={14} />
+                Feedback<span className="count">{queue.comments.length}</span>
+              </button>
+            </>
+          ) : (
+            <span className="toolbar-hint">
+              Read the code. Leave the context.
+            </span>
+          )}
+        </div>
+        {error && (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+            {snapshot && <button onClick={refresh}>Refresh</button>}
+            <button
+              className="icon-button"
+              aria-label="Dismiss error"
+              onClick={() => setError("")}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        {!snapshot ? (
+          <main className="welcome">
+            <div className="welcome-mark">
+              <ScanSearch size={42} strokeWidth={1.4} />
+            </div>
+            <span className="eyebrow">A CLEARER LOOK AT YOUR CODE</span>
+            <h1>
+              Understand the changes.
+              <br />
+              <span>Keep the conversation.</span>
+            </h1>
+            <p>
+              Browse a repository, review its diffs, and leave precise
+              <br />
+              feedback for your coding agent. All on your machine.
+            </p>
+            <button
+              className="primary-button welcome-open"
+              onClick={pickRepository}
+              disabled={!ready || busy}
+            >
+              {busy ? (
+                <LoaderCircle size={17} className="spin" />
+              ) : (
+                <FolderOpen size={17} />
+              )}
+              Open repository<kbd>⌘ O</kbd>
+            </button>
+            {preferences.recentRepositories.length > 0 && (
+              <div className="recent-repositories">
+                <h3>RECENT REPOSITORIES</h3>
+                {preferences.recentRepositories.slice(0, 5).map((path) => (
+                  <button key={path} onClick={() => void openRepository(path)}>
+                    <FolderOpen size={15} />
+                    <span>
+                      {path.split(/[\\/]/).at(-1)}
+                      <small>{path}</small>
+                    </span>
+                    <ArrowRight size={14} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="welcome-features">
+              <span>
+                <BookOpen size={14} />
+                Read-only by design
+              </span>
+              <span>
+                <MessageSquare size={14} />
+                Feedback with context
+              </span>
+              <span>
+                <Check size={14} />
+                Works offline
+              </span>
+            </div>
+          </main>
+        ) : (
+          <div className={`workspace ${feedback ? "" : "feedback-hidden"}`}>
+            <FileTree
+              files={snapshot.files}
+              selected={selected}
+              queue={queue}
+              view={snapshot.comparison.view}
+              onSelect={selectFile}
+            />
+            <main className="main-pane">
+              <div className="comparison-toolbar">
+                {snapshot.comparison.view === "changes" ? (
+                  <>
+                    <select
+                      aria-label="Comparison mode"
+                      value={snapshot.comparison.mode}
+                      onChange={(e) => {
+                        const mode = e.target.value as Comparison["mode"];
+                        changeComparison({
+                          ...snapshot.comparison,
+                          mode,
+                          baseRef:
+                            mode === "branch"
+                              ? (snapshot.comparison.baseRef ??
+                                (branches.includes("main")
+                                  ? "main"
+                                  : (branches[0] ?? null)))
+                              : null,
+                        });
+                      }}
+                    >
+                      <option value="all">All local changes</option>
+                      <option value="unstaged">Unstaged changes</option>
+                      <option value="staged">Staged changes</option>
+                      <option value="branch">Compare to branch</option>
+                    </select>
+                    {snapshot.comparison.mode === "branch" && (
+                      <select
+                        aria-label="Base branch"
+                        value={snapshot.comparison.baseRef ?? ""}
+                        onChange={(e) =>
+                          changeComparison({
+                            ...snapshot.comparison,
+                            baseRef: e.target.value,
+                          })
+                        }
+                      >
+                        {branches.map((branch) => (
+                          <option key={branch}>{branch}</option>
+                        ))}
+                      </select>
+                    )}
+                    {snapshot.comparison.mode !== "staged" && (
+                      <label className="untracked-toggle">
+                        <input
+                          type="checkbox"
+                          checked={snapshot.comparison.includeUntracked}
+                          onChange={(e) =>
+                            changeComparison({
+                              ...snapshot.comparison,
+                              includeUntracked: e.target.checked,
+                            })
+                          }
+                        />
+                        Untracked
+                      </label>
+                    )}
+                    <div className="toolbar-spacer" />
+                    <span className="diff-summary">
+                      <b className="add">+{totalAdds}</b>
+                      <b className="remove">−{totalDeletes}</b>
+                    </span>
+                    <button
+                      className="icon-button"
+                      title={
+                        preferences.diffLayout === "unified"
+                          ? "Switch to split diff"
+                          : "Switch to unified diff"
+                      }
+                      aria-label="Toggle diff layout"
+                      onClick={() =>
+                        setPreferences((p) => ({
+                          ...p,
+                          diffLayout:
+                            p.diffLayout === "unified" ? "split" : "unified",
+                        }))
+                      }
+                    >
+                      <SplitSquareHorizontal size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="breadcrumb">
+                      <Code2 size={14} />
+                      {selectedEntry?.path ?? "Repository"}
+                    </span>
+                    <div className="toolbar-spacer" />
+                    <span className="muted">Working directory</span>
+                  </>
+                )}
+                <button
+                  className={`icon-button ${preferences.showWhitespace ? "active" : ""}`}
+                  title="Toggle whitespace markers"
+                  aria-label="Toggle whitespace markers"
+                  aria-pressed={preferences.showWhitespace}
+                  onClick={() =>
+                    setPreferences((p) => ({
+                      ...p,
+                      showWhitespace: !p.showWhitespace,
+                    }))
+                  }
+                >
+                  <Text size={16} />
+                </button>
+              </div>
+              {findOpen && (
+                <form
+                  className="find-bar"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    jumpMatch(matchIndex + 1);
+                  }}
+                >
+                  <Search size={14} />
+                  <input
+                    aria-label="Find in file"
+                    placeholder="Find in selected file…"
+                    value={findText}
+                    onChange={(e) => {
+                      setFindText(e.target.value);
+                      setMatchIndex(-1);
+                    }}
+                  />
+                  <span>
+                    {matches.length
+                      ? `${Math.max(matchIndex + 1, 0)} / ${matches.length}`
+                      : "No matches"}
+                  </span>
+                  <button
+                    type="button"
+                    className="small-button"
+                    onClick={() => jumpMatch(matchIndex - 1)}
+                  >
+                    ↑
+                  </button>
+                  <button className="small-button">↓</button>
+                  <input
+                    className="line-input"
+                    aria-label="Go to line"
+                    placeholder="Line…"
+                    value={lineInput}
+                    onChange={(e) => setLineInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (selected && Number(lineInput) > 0)
+                          viewer.current?.jump(
+                            selected,
+                            Number(lineInput),
+                            "new",
+                          );
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Close search"
+                    onClick={() => setFindOpen(false)}
+                  >
+                    <X size={14} />
+                  </button>
+                </form>
+              )}
+              {snapshot.files.length ? (
+                <Viewer
+                  ref={viewer}
+                  key={snapshot.queueId}
+                  snapshot={snapshot}
+                  selected={selected}
+                  loaded={loaded}
+                  errors={errors}
+                  queue={queue}
+                  preferences={preferences}
+                  theme={theme}
+                  onLoad={requestFile}
+                  onComment={beginComment}
+                  onReviewed={markReviewed}
+                  onScroll={saveScroll}
+                  onActiveFileChange={followVisibleFile}
+                  onError={reportError}
+                />
+              ) : (
+                <div className="empty-state">
+                  <Check size={35} strokeWidth={1.3} />
+                  <h2>
+                    {snapshot.comparison.view === "changes"
+                      ? "All clear."
+                      : "No files yet."}
+                  </h2>
+                  <p>
+                    {snapshot.comparison.view === "changes"
+                      ? "There are no changes in this comparison."
+                      : "Tracked and non-ignored files will appear here."}
+                  </p>
+                  <button
+                    className="small-button"
+                    onClick={() =>
+                      changeComparison({
+                        ...defaultComparison,
+                        view:
+                          snapshot.comparison.view === "changes"
+                            ? "code"
+                            : "changes",
+                      })
+                    }
+                  >
+                    {snapshot.comparison.view === "changes"
+                      ? "Browse code"
+                      : "View changes"}
+                  </button>
+                </div>
+              )}
+              {busy && (
+                <div className="refresh-overlay">
+                  <LoaderCircle size={18} className="spin" />
+                  Reading repository…
+                </div>
+              )}
+            </main>
+            {feedback && (
+              <Feedback
+                key={snapshot.queueId}
+                queue={queue}
+                view={snapshot.comparison.view}
+                draft={drafts[snapshot.queueId]}
+                busy={saving}
+                onDraft={(draft) =>
+                  setDrafts((prev) => ({ ...prev, [snapshot.queueId]: draft }))
+                }
+                onSubmit={submitComment}
+                onCopy={copyFeedback}
+                onSave={saveFeedback}
+                onClear={clearFeedback}
+                onDelete={(id) => {
+                  void api
+                    .deleteComments(snapshot.queueId, id)
+                    .then(reloadQueue)
+                    .catch(reportError);
+                }}
+                onEdit={async (id, body) => {
+                  try {
+                    await api.editComment(snapshot.queueId, id, body);
+                    await reloadQueue();
+                  } catch (e) {
+                    reportError(e);
+                    throw e;
+                  }
+                }}
+                onJump={jumpToComment}
+                onClose={() => setFeedback(false)}
+              />
+            )}
+          </div>
+        )}
+        <footer className="statusbar">
+          <span>
+            <span className="status-dot" />
+            {busy ? "Refreshing…" : snapshot ? "Ready" : "Local workspace"}
+          </span>
+          {snapshot && (
+            <>
+              <span>{snapshot.files.length} files</span>
+              {snapshot.comparison.view === "changes" && (
+                <span>{Object.keys(queue.reviewed).length} reviewed</span>
+              )}
+            </>
+          )}
+          <div className="toolbar-spacer" />
+          <span>{theme.name}</span>
+          {selectedFile && (
+            <span>Tab width: {selectedFile.content.tabWidth}</span>
+          )}
+          <span>Peer 0.1</span>
+        </footer>
+        {message && (
+          <div className="toast" role="status">
+            <Check size={14} />
+            {message}
+          </div>
+        )}
+        {settings && (
+          <Settings
+            preferences={preferences}
+            themes={themes}
+            onChange={setPreferences}
+            onImport={importTheme}
+            onRemove={removeTheme}
+            onClose={() => setSettings(false)}
+          />
+        )}
+        {quickOpen && (
+          <Modal
+            title="Go to file"
+            onClose={() => setQuickOpen(false)}
+            className="quick-open"
+          >
+            <label className="filter-input">
+              <Search size={16} />
+              <input
+                autoFocus
+                aria-label="Quick open file"
+                placeholder="Type a filename…"
+                value={quickFilter}
+                onChange={(e) => setQuickFilter(e.target.value)}
+              />
+            </label>
+            <div className="quick-results">
+              {snapshot?.files
+                .filter((file) =>
+                  file.path.toLowerCase().includes(quickFilter.toLowerCase()),
+                )
+                .slice(0, 100)
+                .map((file) => (
+                  <button
+                    key={file.id}
+                    onClick={() => {
+                      selectFile(file.id);
+                      setQuickOpen(false);
+                    }}
+                  >
+                    <Code2 size={14} />
+                    <span>{file.path}</span>
+                    <ChevronRight size={13} />
+                  </button>
+                ))}
+            </div>
+          </Modal>
+        )}
+        {exportText !== null && (
+          <Modal title="Feedback JSON" onClose={() => setExportText(null)}>
+            <p className="settings-help">
+              Clipboard access was unavailable. Select the JSON or save it to a
+              file.
+            </p>
+            <textarea
+              className="export-json"
+              aria-label="Exported feedback JSON"
+              value={exportText}
+              readOnly
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button className="primary-button" onClick={saveFeedback}>
+              Save JSON
+            </button>
+          </Modal>
+        )}
+      </div>
+    </WorkerPoolContextProvider>
+  );
+}

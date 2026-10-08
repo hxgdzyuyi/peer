@@ -1,0 +1,15 @@
+{
+  "appearance": {
+    "mode": "system",
+    "lightTheme": "github-light",
+    "darkTheme": "github-dark"
+  },
+  "recentRepositories": [],
+  "lastRepository": null,
+  "sessions": {},
+  "tabWidth": 4,
+  "showWhitespace": false,
+  "diffLayout": "unified",
+  "gitExecutable": null,
+  "codeFontSize": 12
+}

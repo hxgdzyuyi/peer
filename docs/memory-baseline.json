@@ -1,0 +1,136 @@
+{
+  "machine": {
+    "cpu": "Apple M2",
+    "platform": "darwin",
+    "release": "25.5.0"
+  },
+  "fixture": {
+    "files": 100,
+    "linesPerFile": 1000,
+    "changedLines": 10000
+  },
+  "build": "Tauri debug with embedded test driver",
+  "samples": [
+    {
+      "phase": "startup",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 11,
+      "main": {
+        "bytes": 27262976,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 230686720,
+        "peakBytes": 402653184
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-20",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 22,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 334495744,
+        "peakBytes": 607125504
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-50",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 55,
+      "main": {
+        "bytes": 29360128,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 505413632,
+        "peakBytes": 840957952
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-100",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 915406848,
+        "peakBytes": 1166016512
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-20",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 917504000,
+        "peakBytes": 1166016512
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-50",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 978321408,
+        "peakBytes": 1166016512
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-100",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 29360128,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 979369984,
+        "peakBytes": 1166016512
+      }
+    },
+    {
+      "phase": "changes-refresh",
+      "errors": [],
+      "highlightBytes": null,
+      "highlightEntries": null,
+      "loadedFiles": 12,
+      "main": {
+        "bytes": 31457280,
+        "peakBytes": 36700160
+      },
+      "webContent": {
+        "bytes": 1114636288,
+        "peakBytes": 1362100224
+      }
+    }
+  ],
+  "note": "Captured before optimization. The baseline run stopped at the Code source-cache assertion after retaining 100 files (limit: 8). The recorded Changes samples completed without renderer errors; Code memory was not captured."
+}

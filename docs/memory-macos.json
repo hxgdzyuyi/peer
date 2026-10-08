@@ -1,0 +1,165 @@
+{
+  "machine": {
+    "cpu": "Apple M2",
+    "platform": "darwin",
+    "release": "25.5.0"
+  },
+  "fixture": {
+    "files": 100,
+    "linesPerFile": 1000,
+    "changedLines": 10000
+  },
+  "build": "Tauri debug with embedded test driver",
+  "samples": [
+    {
+      "phase": "startup",
+      "errors": [],
+      "highlightBytes": "11681940",
+      "highlightEntries": "1",
+      "loadedFiles": 11,
+      "main": {
+        "bytes": 34603008,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 269484032,
+        "peakBytes": 521142272
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-20",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 22,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 417333248,
+        "peakBytes": 615514112
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-50",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 55,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 321912832,
+        "peakBytes": 823132160
+      }
+    },
+    {
+      "phase": "changes-pass-1-file-100",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 436207616,
+        "peakBytes": 823132160
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-20",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 468713472,
+        "peakBytes": 823132160
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-50",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 531628032,
+        "peakBytes": 823132160
+      }
+    },
+    {
+      "phase": "changes-pass-2-file-100",
+      "errors": [],
+      "highlightBytes": "23371880",
+      "highlightEntries": "2",
+      "loadedFiles": 100,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 636485632,
+        "peakBytes": 893386752
+      }
+    },
+    {
+      "phase": "changes-refresh",
+      "errors": [],
+      "highlightBytes": "11685940",
+      "highlightEntries": "1",
+      "loadedFiles": 12,
+      "main": {
+        "bytes": 31457280,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 728760320,
+        "peakBytes": 1026555904
+      }
+    },
+    {
+      "phase": "code-100-files",
+      "errors": [],
+      "highlightBytes": "23108160",
+      "highlightEntries": "4",
+      "loadedFiles": 8,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 676331520,
+        "peakBytes": 1026555904
+      }
+    },
+    {
+      "phase": "return-to-changes",
+      "errors": [],
+      "highlightBytes": "11681940",
+      "highlightEntries": "1",
+      "loadedFiles": 12,
+      "main": {
+        "bytes": 28311552,
+        "peakBytes": 40894464
+      },
+      "webContent": {
+        "bytes": 698351616,
+        "peakBytes": 1026555904
+      }
+    }
+  ]
+}
