@@ -46,6 +46,149 @@ fn code() -> Comparison {
     }
 }
 
+#[cfg(unix)]
+fn interrupt_next_snapshot(repo: &Path, app: &Inspector, command: &str, action: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let wrapper = repo.join(".git/refresh-git");
+    let real_git = repository::discover_git(None);
+    let quoted_git = format!("'{}'", real_git.replace('\'', "'\\''"));
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\ncase \" $* \" in\n*' {command} '*)\n  if [ -f .git/refresh-pending ]; then\n    rm .git/refresh-pending\n    {action}\n  fi\n  ;;\nesac\nexec {quoted_git} \"$@\"\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(repo.join(".git/refresh-pending"), "").unwrap();
+    let mut preferences = app.store.read().unwrap().preferences;
+    preferences.git_executable = Some(wrapper.to_str().unwrap().into());
+    app.save_preferences(preferences).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn refresh_retries_a_snapshot_interrupted_by_an_index_update() {
+    let repo = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    let old = app
+        .open_repository(repo.path().to_str().unwrap(), Some(code()))
+        .await
+        .unwrap();
+    interrupt_next_snapshot(
+        repo.path(),
+        &app,
+        "ls-files --stage -z",
+        "printf 'arrived during refresh\\n' > added.txt\n    git add added.txt",
+    );
+    let refreshed = app
+        .open_repository(repo.path().to_str().unwrap(), Some(code()))
+        .await
+        .expect("one refresh should retry after the index changes during discovery");
+    assert_ne!(refreshed.id, old.id);
+    let added = refreshed
+        .files
+        .iter()
+        .find(|f| f.path == "added.txt")
+        .unwrap();
+    let content = app
+        .read_file(&refreshed.id, &added.id, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        content.new_content.as_deref(),
+        Some("arrived during refresh\n")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn refresh_retries_when_a_reviewed_file_changes_during_reconciliation() {
+    let repo = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    fs::write(repo.path().join("hello.ts"), "before refresh\n").unwrap();
+    let old = app
+        .open_repository(repo.path().to_str().unwrap(), Some(mode("all")))
+        .await
+        .unwrap();
+    let file = old.files.iter().find(|f| f.path == "hello.ts").unwrap();
+    let content = app.read_file(&old.id, &file.id, false).await.unwrap();
+    app.add_comment(NewComment {
+        snapshot_id: old.id.clone(),
+        file_id: file.id.clone(),
+        fingerprint: content.fingerprint.clone(),
+        body: "Keep this feedback".into(),
+        side: Some("new".into()),
+        line: Some(1),
+    })
+    .await
+    .unwrap();
+    app.set_reviewed(&old.id, &file.id, &content.fingerprint, true)
+        .await
+        .unwrap();
+    interrupt_next_snapshot(
+        repo.path(),
+        &app,
+        "cat-file -s",
+        "printf 'updated during refresh\\n' > hello.ts",
+    );
+    let refreshed = app
+        .open_repository(repo.path().to_str().unwrap(), Some(mode("all")))
+        .await
+        .expect("one refresh should retry after a reviewed file changes while being read");
+    let content = app.read_file(&refreshed.id, &file.id, false).await.unwrap();
+    assert_eq!(
+        content.new_content.as_deref(),
+        Some("updated during refresh\n")
+    );
+    let queue = app.queue(&refreshed.id).await.unwrap();
+    assert_eq!(queue.comments.len(), 1);
+    assert!(queue.comments[0].outdated);
+    assert!(queue.reviewed.is_empty());
+    // Reading an old view still reports staleness; only an explicit reload retries.
+    assert!(app.read_file(&old.id, &file.id, false).await.is_err());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn refresh_retries_are_bounded_without_discarding_feedback() {
+    let repo = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    fs::write(repo.path().join("hello.ts"), "before refresh\n").unwrap();
+    let old = app
+        .open_repository(repo.path().to_str().unwrap(), Some(mode("all")))
+        .await
+        .unwrap();
+    let file = old.files.iter().find(|f| f.path == "hello.ts").unwrap();
+    let content = app.read_file(&old.id, &file.id, false).await.unwrap();
+    app.set_reviewed(&old.id, &file.id, &content.fingerprint, true)
+        .await
+        .unwrap();
+    interrupt_next_snapshot(
+        repo.path(),
+        &app,
+        "cat-file -s",
+        "printf 'still changing\\n' >> hello.ts\n    printf x >> .git/refresh-attempts\n    touch .git/refresh-pending",
+    );
+    assert_eq!(
+        app.open_repository(repo.path().to_str().unwrap(), Some(mode("all")))
+            .await
+            .unwrap_err(),
+        repository::STALE
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".git/refresh-attempts")).unwrap(),
+        "xxx"
+    );
+    // A failed refresh leaves the previous snapshot and queue available.
+    let queue = app.queue(&old.id).await.unwrap();
+    assert_eq!(queue.reviewed.get("hello.ts"), Some(&content.fingerprint));
+}
+
 #[tokio::test]
 async fn staged_unstaged_and_combined_are_distinct() {
     let repo = fixture();

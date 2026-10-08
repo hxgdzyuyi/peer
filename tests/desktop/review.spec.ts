@@ -1,5 +1,13 @@
 import { browser, $, expect } from "@wdio/globals";
-import { writeFileSync, appendFileSync, readFileSync } from "node:fs";
+import {
+  writeFileSync,
+  appendFileSync,
+  readFileSync,
+  chmodSync,
+  existsSync,
+  unlinkSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve, join } from "node:path";
 import { cpus, platform, release } from "node:os";
 
@@ -822,6 +830,106 @@ describe("Peer in the native webview", () => {
         );
       }),
     );
+  });
+
+  it("refreshes Code and Changes in one click, including an interrupted snapshot", async () => {
+    const repo = process.env.PEER_TEST_REPO!;
+    const path = join(repo, "refresh-target.txt");
+    const removed = join(repo, "refresh-removed.txt");
+    const readSource = () =>
+      browser.execute(
+        () =>
+          document
+            .querySelector('[data-file-path="refresh-target.txt"]')
+            ?.closest("diffs-container")
+            ?.shadowRoot?.querySelector("[data-code]")?.textContent,
+      );
+    if (!(await $(".breadcrumb").isExisting())) await click("button=Code");
+    await $(".breadcrumb").waitForExist();
+    await $('[aria-label="Refresh repository"]').waitForEnabled();
+    writeFileSync(path, "Before refresh\n");
+    writeFileSync(removed, "Remove me\n");
+    await click('[aria-label="Refresh repository"]');
+    await $('.tree-file[title="refresh-target.txt"]').waitForExist();
+    await click('.tree-file[title="refresh-target.txt"]');
+    await browser.waitUntil(async () =>
+      (await readSource())?.includes("Before refresh"),
+    );
+    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
+      "title",
+      "refresh-target.txt",
+    );
+    await expect($(".breadcrumb")).toHaveText(
+      expect.stringContaining("refresh-target.txt"),
+    );
+
+    writeFileSync(path, "Updated Code content\n");
+    unlinkSync(removed);
+    writeFileSync(join(repo, "refresh-added.txt"), "Added after opening\n");
+    await click('[aria-label="Refresh repository"]');
+    await browser.waitUntil(async () =>
+      (await readSource())?.includes("Updated Code content"),
+    );
+    await expect($('.tree-file[title="refresh-removed.txt"]')).not.toExist();
+    await expect($('.tree-file[title="refresh-added.txt"]')).toExist();
+    await expect($(".error-banner")).not.toExist();
+
+    await click("button=Changes");
+    await $(".breadcrumb").waitForExist({ reverse: true });
+    await click('.tree-file[title="refresh-target.txt"]');
+    await browser.waitUntil(async () =>
+      (await readSource())?.includes("Updated Code content"),
+    );
+    const reviewed =
+      '[data-file-path="refresh-target.txt"] .review-check input';
+    await click(reviewed);
+    await expect($(reviewed)).toBeSelected();
+    writeFileSync(path, "Changed before requesting refresh\n");
+    await click(reviewed);
+    // A stale review action still offers a refresh without silently changing its source.
+    await expect($(".error-banner")).toHaveText(
+      expect.stringContaining("Source changed since this snapshot"),
+    );
+
+    const wrapper = join(repo, ".git/refresh-git");
+    const pending = join(repo, ".git/refresh-pending");
+    const git = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const quotedGit = `'${git.replaceAll("'", "'\\''")}'`;
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh
+case " $* " in
+*' ls-files --stage -z '*)
+  if [ -f .git/refresh-pending ]; then
+    rm .git/refresh-pending
+    printf 'Changed during requested refresh\\n' > refresh-target.txt
+    ${quotedGit} add refresh-target.txt
+  fi
+  ;;
+esac
+exec ${quotedGit} "$@"
+`,
+    );
+    chmodSync(wrapper, 0o755);
+    writeFileSync(pending, "");
+    await click('[aria-label="Settings"]');
+    await $('[aria-label="Git executable path"]').setValue(wrapper);
+    await click('[aria-label="Close dialog"]');
+    try {
+      // Exactly one toolbar click must recover from both the old warning and
+      // another repository change occurring inside the new snapshot read.
+      await click('[aria-label="Refresh repository"]');
+      await browser.waitUntil(async () =>
+        (await readSource())?.includes("Changed during requested refresh"),
+      );
+      expect(existsSync(pending)).toBe(false);
+      await expect($(".error-banner")).not.toExist();
+      await expect($(reviewed)).not.toBeSelected();
+    } finally {
+      await click('[aria-label="Settings"]');
+      await $('[aria-label="Git executable path"]').setValue("");
+      await click('[aria-label="Close dialog"]');
+    }
   });
 
   it("accepts native dragging from the title bar and app name, excluding buttons", async () => {

@@ -48,6 +48,23 @@ impl Inspector {
         path: &str,
         comparison: Option<Comparison>,
     ) -> Result<Snapshot, String> {
+        // A requested reload already authorizes a fresh snapshot. If an editor
+        // or Git changes the source during discovery/reconciliation, start over
+        // instead of asking the user to click Refresh a second time. Ordinary
+        // reads and feedback mutations keep rejecting stale snapshots.
+        for attempt in 0..3 {
+            match self.open_repository_once(path, comparison.clone()).await {
+                Err(error) if error == repository::STALE && attempt < 2 => continue,
+                result => return result,
+            }
+        }
+        unreachable!()
+    }
+    async fn open_repository_once(
+        &self,
+        path: &str,
+        comparison: Option<Comparison>,
+    ) -> Result<Snapshot, String> {
         let preferences = self.store.read()?.preferences;
         let requested = comparison
             .clone()

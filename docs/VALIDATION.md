@@ -4,9 +4,9 @@ Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native ap
 
 ## Results
 
-- 15 Rust integration/contract tests passed.
+- 18 Rust integration/contract tests passed on macOS.
 - 10 frontend unit/contract tests passed.
-- 12 WebdriverIO UI tests and the separate memory workload passed against the actual Tauri macOS application.
+- 13 WebdriverIO UI tests passed against the actual Tauri macOS application. The separate memory workload passed during the earlier memory optimization; it was not rerun for the refresh fix.
 - TypeScript production compilation and Rust formatting checks passed.
 - Production dependency audit: zero reported vulnerabilities. This result excludes development/test tooling.
 - Universal executable verified to contain both `arm64` and `x86_64` slices.
@@ -32,6 +32,8 @@ An earlier run during concurrent universal compilation recorded 48 ms and 100 ms
 Core tests cover staged/unstaged/net/merge-base comparisons; unborn HEAD; renames, deletion, Unicode/control-character paths; ignored files; symlink targets; binary files; submodule updates/deletion; conflicts; large-file deferral; CRLF and missing final newlines; branch/worktree queue isolation; persistence; stale reads/outdated feedback; Reviewed reset; one-based old/new export coordinates; EditorConfig; JSONC validation; duplicate theme names; and imported-theme persistence/removal.
 
 Native tests cover opening the workload, rendering syntax colors, file and line comments, draft preservation through a theme switch, JSON clipboard export, whitespace text preservation, split/unified layouts, jumping beyond the viewport, Reviewed persistence, refresh/outdated feedback, Code/Changes queue isolation, file navigation, and scrolling.
+
+Refresh coverage verifies that one toolbar click loads updated Code content and added/deleted files, clears a stale-source banner, and recovers from a Git index update injected during the reload. A stale Reviewed action still shows the refresh prompt. Three Unix core regressions cover changes during snapshot discovery, changes during feedback reconciliation, and the three-attempt retry limit with the previous queue retained. Both transient-change regressions failed with the original extra-click error before the fix. The full native suite passed all 13 tests after tightening navigation preconditions in the new test; the first run also encountered the existing horizontal-scroll timeout. This refresh validation recorded 22 ms scroll p95 and 65 ms warm-navigation p95; the retained benchmark dataset above predates this change.
 
 Concise feedback export is checked against the actual native clipboard for both a file comment and a line comment at line 80. The JSON array includes only `file`, optional `line`, and `comment`, with `side: "old"` and `outdated: true` when applicable. Core tests also cover renamed paths, old-side coordinates, removed files, JSON escaping, separate Code/Changes queues, and preservation of rich anchors in storage. Save JSON uses the same core exporter. Clipboard read permission is enabled only in the test configuration. The first native run for this change hit horizontal-scroll and view-switch timeouts; the unchanged build passed all 12 tests on rerun.
 

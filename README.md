@@ -43,6 +43,8 @@ Use the gutter **+** to comment on a line, or a file header's comment button for
 
 Refresh marks comments outdated when their file fingerprint changes, and resets Reviewed for changed files. Original anchors and context remain intact, including feedback on files that disappear. Drafts survive theme and view switching during the session; only saved comments survive application restarts.
 
+The toolbar Refresh button and Refresh Repository menu command reload immediately. If files or Git's index change during that reload, Peer retries with a fresh snapshot (up to three attempts) before showing an error. Stale reads and review actions still offer a refresh without silently replacing the source being reviewed.
+
 **Copy comments** copies a concise JSON array from the active queue:
 
 ```json
