@@ -78,7 +78,7 @@ export function Feedback({
           disabled={!queue.comments.length}
         >
           <Copy size={14} />
-          Copy JSON
+          Copy comments
         </button>
         <button
           className="icon-button bordered"
@@ -246,8 +246,8 @@ export function Feedback({
         ))}
       </div>
       <div className="feedback-note">
-        Copy the JSON into your coding agent to share the exact file, line, and
-        context.
+        Copy comments to share the file, line, and feedback with your coding
+        agent.
       </div>
     </aside>
   );

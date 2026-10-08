@@ -4,7 +4,7 @@ Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native ap
 
 ## Results
 
-- 14 Rust integration/contract tests passed.
+- 15 Rust integration/contract tests passed.
 - 10 frontend unit/contract tests passed.
 - 12 WebdriverIO UI tests and the separate memory workload passed against the actual Tauri macOS application.
 - TypeScript production compilation and Rust formatting checks passed.
@@ -32,6 +32,8 @@ An earlier run during concurrent universal compilation recorded 48 ms and 100 ms
 Core tests cover staged/unstaged/net/merge-base comparisons; unborn HEAD; renames, deletion, Unicode/control-character paths; ignored files; symlink targets; binary files; submodule updates/deletion; conflicts; large-file deferral; CRLF and missing final newlines; branch/worktree queue isolation; persistence; stale reads/outdated feedback; Reviewed reset; one-based old/new export coordinates; EditorConfig; JSONC validation; duplicate theme names; and imported-theme persistence/removal.
 
 Native tests cover opening the workload, rendering syntax colors, file and line comments, draft preservation through a theme switch, JSON clipboard export, whitespace text preservation, split/unified layouts, jumping beyond the viewport, Reviewed persistence, refresh/outdated feedback, Code/Changes queue isolation, file navigation, and scrolling.
+
+Concise feedback export is checked against the actual native clipboard for both a file comment and a line comment at line 80. The JSON array includes only `file`, optional `line`, and `comment`, with `side: "old"` and `outdated: true` when applicable. Core tests also cover renamed paths, old-side coordinates, removed files, JSON escaping, separate Code/Changes queues, and preservation of rich anchors in storage. Save JSON uses the same core exporter. Clipboard read permission is enabled only in the test configuration. The first native run for this change hit horizontal-scroll and view-switch timeouts; the unchanged build passed all 12 tests on rerun.
 
 Horizontal-overflow coverage resizes the native window to 950 × 740 and checks unified diffs, both split columns, and Code. It verifies that the bottom scrollbar stays inside the viewport, reaches clipped line endings without changing source text, mirrors scrolling over the code, and updates on file selection and collapse/expand. Home/End use standard DOM keyboard events because the embedded driver sends raw WebDriver private-use characters for those keys. The scrollbar reserves a stable height and measures only the active file's rendered columns; macOS scrollbar styling keeps its thumb visible. Pending scrollbar input takes precedence when a layout frame runs before its native scroll event.
 

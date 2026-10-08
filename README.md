@@ -43,7 +43,20 @@ Use the gutter **+** to comment on a line, or a file header's comment button for
 
 Refresh marks comments outdated when their file fingerprint changes, and resets Reviewed for changed files. Original anchors and context remain intact, including feedback on files that disappear. Drafts survive theme and view switching during the session; only saved comments survive application restarts.
 
-**Copy JSON** includes every saved comment in the active queue, including outdated ones. Copying does not clear feedback. Save JSON and a selectable JSON fallback are also available.
+**Copy comments** copies a concise JSON array from the active queue:
+
+```json
+[
+  {
+    "file": "src/example.ts",
+    "line": 42,
+    "comment": "Handle an empty result here."
+  },
+  { "file": "README.md", "comment": "Document the setup steps." }
+]
+```
+
+File comments omit `line`. Line numbers are one-based; diff comments on the old side additionally include `"side": "old"`. Outdated comments are included with `"outdated": true`, retaining their original location. Copying does not clear feedback. Save JSON and the selectable clipboard fallback use the same concise format.
 
 ## Themes
 
@@ -63,7 +76,7 @@ Peer retains the original `dev.repoinspector.app` application identifier and OS-
 
 Git runs asynchronously with argument arrays, NUL-delimited path metadata, disabled external diff/textconv, and optional locks disabled. The app never edits, stages, commits, fetches, or applies repository changes. It tries PATH and common installed Git locations; Settings accepts an explicit executable path.
 
-Snapshot IDs and source fingerprints prevent feedback from attaching to a different version. Export schema version 1 contains repository/queue identity, comparison, revisions, and saved comments. Each comment carries its original snapshot, file fingerprint, relative path, timestamps, context, and outdated flag. Diff line comments use `old`/`new` and one-based line numbers. File comments omit line coordinates.
+Snapshot IDs and source fingerprints prevent feedback from attaching to a different version. Saved comments retain their original anchors, Git revisions, timestamps, and code context internally. Copying or saving feedback exports only the relative filename, line number when applicable, and comment text, plus old-side/outdated markers when needed. Renamed files use their current comparison path.
 
 A future MCP adapter can instantiate the Rust `Inspector` against the same store. MCP transport, browser distribution, filesystem watching, history browsing, repository-wide search, symbol navigation, image comparison, and editing are not included.
 

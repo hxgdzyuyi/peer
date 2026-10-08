@@ -129,8 +129,13 @@ async fn comments_are_anchored_isolated_persistent_and_outdated() {
     assert!(queue.reviewed.is_empty());
     let exported: serde_json::Value =
         serde_json::from_str(&app.export(&s2.id).await.unwrap()).unwrap();
-    assert_eq!(exported["schemaVersion"], 1);
-    assert_eq!(exported["comments"][0]["anchor"]["side"], "old");
+    assert_eq!(
+        exported,
+        serde_json::json!([{
+            "file": "hello.ts", "line": 1, "side": "old",
+            "comment": "Why remove this?", "outdated": true
+        }])
+    );
     let fresh_app = Inspector::new(store.path()).unwrap();
     let restored = fresh_app
         .open_repository(repo.path().to_str().unwrap(), Some(mode("all")))
@@ -147,6 +152,83 @@ async fn comments_are_anchored_isolated_persistent_and_outdated() {
         .unwrap()
         .comments
         .is_empty());
+}
+
+#[tokio::test]
+async fn concise_exports_keep_locations_and_queue_contents_without_internal_metadata() {
+    let repo = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    git(repo.path(), &["mv", "hello.ts", "renamed.ts"]);
+    let body = "Explain \"this\" value.\nCould it be a constant?";
+
+    for comparison in [code(), mode("all")] {
+        let changes = comparison.view == "changes";
+        let snapshot = app
+            .open_repository(repo.path().to_str().unwrap(), Some(comparison))
+            .await
+            .unwrap();
+        assert_eq!(app.export(&snapshot.id).await.unwrap(), "[]");
+        let file = snapshot
+            .files
+            .iter()
+            .find(|file| file.path == "renamed.ts")
+            .unwrap();
+        let content = app.read_file(&snapshot.id, &file.id, false).await.unwrap();
+        app.add_comment(NewComment {
+            snapshot_id: snapshot.id.clone(),
+            file_id: file.id.clone(),
+            fingerprint: content.fingerprint.clone(),
+            body: body.into(),
+            line: Some(2),
+            side: changes.then(|| "new".into()),
+        })
+        .await
+        .unwrap();
+        app.add_comment(NewComment {
+            snapshot_id: snapshot.id.clone(),
+            file_id: file.id.clone(),
+            fingerprint: content.fingerprint.clone(),
+            body: "Clarify this file's purpose.".into(),
+            line: None,
+            side: None,
+        })
+        .await
+        .unwrap();
+        let expected = serde_json::json!([
+            {"file": "renamed.ts", "line": 2, "comment": body},
+            {"file": "renamed.ts", "comment": "Clarify this file's purpose."}
+        ]);
+        let exported: serde_json::Value =
+            serde_json::from_str(&app.export(&snapshot.id).await.unwrap()).unwrap();
+        assert_eq!(exported, expected);
+        if changes {
+            app.add_comment(NewComment {
+                snapshot_id: snapshot.id.clone(),
+                file_id: file.id.clone(),
+                fingerprint: content.fingerprint.clone(),
+                body: "Explain the original line.".into(),
+                line: Some(1),
+                side: Some("old".into()),
+            })
+            .await
+            .unwrap();
+            let exported: serde_json::Value =
+                serde_json::from_str(&app.export(&snapshot.id).await.unwrap()).unwrap();
+            assert_eq!(
+                exported[2],
+                serde_json::json!({
+                    "file": "renamed.ts", "line": 1, "side": "old", "comment": "Explain the original line."
+                })
+            );
+        }
+        // Exporting is a projection: persistence keeps the full original anchor.
+        let retained = app.queue(&snapshot.id).await.unwrap();
+        assert_eq!(retained.comments[0].anchor.line, Some(2));
+        assert_eq!(retained.comments[0].anchor.fingerprint, content.fingerprint);
+        assert!(retained.comments[0].anchor.line_text.is_some());
+        assert!(!retained.comments[0].id.is_empty());
+    }
 }
 
 #[tokio::test]
@@ -312,10 +394,12 @@ async fn removed_file_comments_remain_exportable_without_line_coordinates() {
         .await
         .unwrap();
     let value: serde_json::Value = serde_json::from_str(&app.export(&s.id).await.unwrap()).unwrap();
-    let comment = &value["comments"][0];
-    assert_eq!(comment["outdated"], true);
-    assert!(comment["anchor"].get("line").is_none());
-    assert!(comment["anchor"].get("side").is_none());
+    assert_eq!(
+        value,
+        serde_json::json!([{
+            "file": "keep.txt", "comment": "Explain this file", "outdated": true
+        }])
+    );
 }
 
 #[tokio::test]

@@ -22,6 +22,7 @@
           "windows": ["main"],
           "permissions": [
             "wdio:default",
+            "clipboard-manager:allow-read-text",
             "core:window:allow-set-focus",
             "core:window:allow-set-size"
           ]

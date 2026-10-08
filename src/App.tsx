@@ -558,7 +558,7 @@ export default function App() {
       const json = await api.export(snapshot.id);
       try {
         await writeText(json);
-        notify("Feedback copied as JSON");
+        notify("Comments copied");
       } catch {
         setExportText(json);
       }

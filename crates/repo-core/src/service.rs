@@ -330,15 +330,39 @@ impl Inspector {
         })
     }
     pub async fn export(&self, snapshot_id: &str) -> Result<String, String> {
-        let snapshot = self.snapshot(snapshot_id).await?;
-        // Export original anchors exactly, including comments already marked outdated.
+        #[derive(serde::Serialize)]
+        struct Feedback<'a> {
+            file: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            line: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            side: Option<&'a str>,
+            comment: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            outdated: Option<bool>,
+        }
+
+        // Keep rich anchors in storage; share only the location and feedback.
         let queue = self.queue(snapshot_id).await?;
-        serde_json::to_string_pretty(&serde_json::json!({
-            "schemaVersion": 1, "repository": { "name": snapshot.data.repository.name, "id": snapshot.data.repository.id, "root": snapshot.data.repository.root, "branch": snapshot.data.repository.branch },
-            "queue": { "id": snapshot.data.queue_id, "comparison": snapshot.data.comparison },
-            "revisions": { "head": snapshot.data.repository.head, "base": snapshot.data.base_commit },
-            "comments": queue.comments
-        })).map_err(|e| e.to_string())
+        let feedback: Vec<_> = queue
+            .comments
+            .iter()
+            .map(|comment| {
+                let line = comment.anchor.line.filter(|_| comment.scope == "line");
+                Feedback {
+                    file: &comment.path,
+                    line,
+                    side: comment
+                        .anchor
+                        .side
+                        .as_deref()
+                        .filter(|side| line.is_some() && *side == "old"),
+                    comment: &comment.body,
+                    outdated: comment.outdated.then_some(true),
+                }
+            })
+            .collect();
+        serde_json::to_string_pretty(&feedback).map_err(|e| e.to_string())
     }
     pub fn import_theme(&self, path: &str) -> Result<ImportedTheme, String> {
         let path = Path::new(path);

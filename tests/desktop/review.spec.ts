@@ -67,7 +67,7 @@ describe("Peer in the native webview", () => {
     await browser.saveScreenshot(resolve("test-results/changes.png"));
   });
 
-  it("saves feedback, keeps a draft through theme changes, and exports real anchors", async () => {
+  it("saves feedback, keeps a draft through theme changes, and copies concise feedback", async () => {
     await click('[aria-label="Comment on file src/module-000.ts"]');
     await $('[aria-label="Comment text"]').setValue(
       "Please explain the value change.",
@@ -95,8 +95,19 @@ describe("Peer in the native webview", () => {
       "Draft survives theme switching",
     );
     await click('[aria-label="Discard draft"]');
-    await click("button=Copy JSON");
+    await click("button=Copy comments");
     await expect($(".toast")).toHaveText(expect.stringContaining("copied"));
+    const copied = await browser.execute(async () =>
+      (window as any).__TAURI__.core.invoke(
+        "plugin:clipboard-manager|read_text",
+      ),
+    );
+    expect(JSON.parse(copied)).toEqual([
+      {
+        file: "src/module-000.ts",
+        comment: "Please explain the value change.",
+      },
+    ]);
     await browser.saveScreenshot(resolve("test-results/dark-feedback.png"));
   });
 
@@ -323,10 +334,7 @@ describe("Peer in the native webview", () => {
   it("resizes code and diffs immediately, preserving drafts and saved preferences", async () => {
     const readState = () =>
       JSON.parse(
-        readFileSync(
-          join(process.env.PEER_DATA_DIR!, "state.json"),
-          "utf8",
-        ),
+        readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
       );
     const queuesBefore = readState().queues;
     const chooseFont = (size: number) =>
@@ -428,10 +436,7 @@ describe("Peer in the native webview", () => {
       (await $(".statusbar").getText()).includes("1 reviewed"),
     );
     const saved = JSON.parse(
-      readFileSync(
-        join(process.env.PEER_DATA_DIR!, "state.json"),
-        "utf8",
-      ),
+      readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
     );
     const queue: any = Object.values(saved.queues).find(
       (q: any) => q.comments.length === 2,
@@ -441,6 +446,24 @@ describe("Peer in the native webview", () => {
     expect(queue.comments[1].anchor.lineText).toContain("item0_79");
     expect(queue.comments[0].anchor.line).toBeUndefined();
     expect(Object.keys(queue.reviewed)).toEqual(["src/module-000.ts"]);
+    await click("button=Copy comments");
+    await expect($(".toast")).toHaveText(expect.stringContaining("copied"));
+    const copied = await browser.execute(async () =>
+      (window as any).__TAURI__.core.invoke(
+        "plugin:clipboard-manager|read_text",
+      ),
+    );
+    expect(JSON.parse(copied)).toEqual([
+      {
+        file: "src/module-000.ts",
+        comment: "Please explain the value change.",
+      },
+      {
+        file: "src/module-000.ts",
+        line: 80,
+        comment: "Can we name this value?",
+      },
+    ]);
     await click('[aria-label="Close search"]');
   });
 
@@ -544,10 +567,7 @@ describe("Peer in the native webview", () => {
     await expect($(".tree-folder")).toHaveAttribute("aria-expanded", "true");
     await browser.waitUntil(async () => {
       const state = JSON.parse(
-        readFileSync(
-          join(process.env.PEER_DATA_DIR!, "state.json"),
-          "utf8",
-        ),
+        readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
       );
       return (
         state.preferences.sessions[state.preferences.lastRepository]
