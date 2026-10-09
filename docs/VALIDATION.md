@@ -2,7 +2,64 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
-## Results
+## Apple Silicon releases — 2026-10-09 JST
+
+Mac releases now target only `aarch64-apple-darwin`. The default release command and packaging workflow produce an Apple Silicon `.app`; DMG packaging is optional via `npm run bundle:dmg`. Earlier universal-build measurements below are historical and do not describe the current supported architectures.
+
+## Branch commit history — 2026-10-09 JST
+
+All 35 regular core tests, 26 frontend tests, and seven focused native tests passed. Core coverage includes paginated history pinned to the captured branch head, unborn and detached HEAD, initial and empty commits, merge diffs against the first parent, shallow history with an unavailable parent, historical renames/deletions/binary files, immutable contents despite local edits and staging, correct review anchors, and Git-backed navigation inventories on both sides. The optional real-language-server smoke test remains ignored.
+
+Native tests cover opening and dismissing history, keyboard navigation, loading older commits, rendering the selected commit's actual before/after content, isolated review comments, restoring the selection after reload, returning to local changes, and repository-switcher regressions. History and diff screenshots were inspected. As with existing select tests, the comparison selector uses a DOM change event because the embedded driver's native option clicks do not emit one. These focused runs do not replace the full desktop performance suite.
+
+## GitHub Actions desktop follow-up — 2026-10-09 JST
+
+Inspected the artifacts from [run 37732905157](https://github.com/lantern24/peer/actions/runs/37732905157). Its Apple M1 virtual runner measured 41 ms scrolling p95 and 177 ms warm-navigation p95, exceeding the local reference targets of 33/100 ms. Hosted CI now explicitly uses performance report mode: measurements, targets, and overruns are retained in the uploaded JSON and job summary, while functional assertions remain mandatory. Local runs still enforce both unchanged targets by default; an unmeasured run cannot pass enforcement mode.
+
+The eviction failure screenshot shows a snapshot-expired banner and the comment still in its draft editor, while source text has rendered correctly. The old test's whole-panel text assertion matched the unsaved draft. Review tests now wait for Code/Changes snapshot transitions to finish before interacting with the new view, avoid reopening an already active view, and require the composer to close and a saved feedback card to appear. Source and inline-comment checks have separate failure messages. Failure artifacts retain per-test state, errors, drafts, and comments instead of overwriting the previous failure's diagnostics.
+
+All 26 frontend/harness unit tests and the production TypeScript/Vite build passed. The policy tests verify that 41 ms still fails enforcement, report mode retains overruns, and invalid measurements fail both modes.
+
+## Resizable sidebars follow-up — 2026-10-09 JST
+
+All 22 frontend tests and 29 regular Rust tests passed, along with the TypeScript/Vite/native test build. Layout tests cover bounds, smaller windows, preserving preferred widths, and hiding Feedback. Core checks cover older preference stores, partial defaults, persistence, and rejecting invalid widths. The optional real-language-server smoke test was not rerun for this change.
+
+Three focused native scenarios passed: dragging both dividers, saved widths after reload and hiding/reopening Feedback, draft preservation, keyboard resizing, Escape cancellation, reset, minimum source space in a smaller window, and a shared width between References and Feedback through symbol navigation and Back. Screenshots were inspected at normal and narrow window sizes. The embedded driver emits mouse events rather than pointer events; double-click reset was exercised with a directly dispatched DOM double-click because its double-click action does not emit that event.
+
+Two additional passive-scrolling and refresh-anchoring regression scenarios timed out while rendering was suspended. Native UI automation confirmed that the Mac was locked; these checks remain pending on an unlocked Mac. The three passing focused scenarios do not replace the pending full desktop suite or performance benchmark below.
+
+Rebuilt the universal macOS app and DMG. Both arm64 and x86_64 slices are present; the ad-hoc app signature and DMG checksum verification passed.
+
+## Refresh anchoring follow-up — 2026-10-09 JST
+
+All 19 frontend tests and the TypeScript/Vite/native test build passed. Five focused native scenarios cover passive file highlighting, one-click Code/Changes refresh (including an interrupted snapshot), and viewport restoration. Refresh checks verify both diff layouts after snapshot expiry, inserted lines, changed preceding-file heights, horizontal scroll, collapsed files, unchanged expanded context, and fallback when the viewed diff disappears. The existing symbol-jump/Back check also passes with expanded context, Unicode selection, and both scroll axes. Unit checks cover renamed paths, removed-file fallback, and excluding external source pages from review anchors. These focused checks do not replace the pending full code-navigation suite below.
+
+Rebuilt the universal macOS app and DMG. Both arm64 and x86_64 slices are present; the ad-hoc app signature and DMG checksum verification passed.
+
+## Settings tabs follow-up — 2026-10-09 JST
+
+All 16 frontend tests and the TypeScript/Vite/native test build passed. Three focused native scenarios verified appearance changes with feedback drafts, persisted viewer preferences, and the new settings tabs. Tab checks cover Left/Right and Home/End navigation, a single keyboard tab stop, one visible panel, fixed navigation while panel content scrolls, preserved theme filters and unsaved server JSON across tabs, and Escape dismissal. Home/End events were dispatched directly because the embedded driver's key map omits them. The dark-mode layout was inspected from a native screenshot. These focused checks do not replace the pending full code-navigation suite below.
+
+## Search highlighting follow-up — 2026-10-09 JST
+
+All 16 frontend tests and the TypeScript/Vite/native test build passed. Three focused native scenarios passed, covering Quick Open keyboard selection and matching-text highlights, full-source Find and Back, and exact source highlights in unified/split diffs. The checks include literal punctuation, case-insensitive matching, syntax and whitespace spans, tabs/emoji, expanded context, multiple occurrences on one line, active-match styling, Enter navigation, clearing/closing Find, and sidebar filename highlights. These focused checks do not replace the pending full code-navigation suite below.
+
+## Quick-open keyboard follow-up
+
+All 13 frontend tests and the TypeScript/Vite/native test build passed. The focused native quick-open scenario passed using WebDriver keyboard input: initial search focus, ↑/↓ and Ctrl+P/Ctrl+N selection, wraparound, query preservation, filter reset, empty results, Enter opening the selected file, and Back restoring the previous file. This focused run does not replace the pending full code-navigation suite below.
+
+## Code navigation validation
+
+- 28 regular Rust tests passed (3 protocol/lifecycle unit tests, 7 navigation integration tests, and 18 existing review/contract tests).
+- The optional real-server smoke test passed with gopls, typescript-language-server with TypeScript 5.9.3, and rust-analyzer. It exercises Go, TypeScript, JavaScript, and Rust definitions, cross-file resolution, methods, nested local shadowing, and references.
+- 13 frontend unit/contract tests passed. Production TypeScript/Vite compilation and Rust formatting checks passed.
+- A focused native run passed all seven navigation scenarios during development. The last full-suite attempt recorded 15 passed, 4 failed interaction checks, and an unmeasured/skipped benchmark while WKWebView animation frames were suspended; native UI automation confirmed the Mac was locked. The refresh follow-up above now verifies scrollbar and Back restoration in focused checks. A full desktop rerun and fresh performance benchmark remain pending; the historical performance results below do not validate this change.
+
+The new fixtures distinguish HEAD, index, working files, and merge base, including unchanged, deleted, renamed, and hidden untracked destinations. They verify immutable source reads, races during copying, dependency previews, snapshot-aware package links, rejection of live repository escapes, unchanged repository/index contents, and stale-context rejection. Protocol fixtures exercise Location/LocationLink forms, UTF-16 positions, configuration, unavailable capabilities, timeout/cancellation with late replies, crashes, session/document caps, idle retirement, and cleanup.
+
+Native coverage includes F12, modifier-click, context menus, unified shared-line side selection, split columns, references and Back, full-source search, quick-open, collapsed and expanded context, selection after tabs/emoji/whitespace decoration, both scroll axes, feedback drafts, input/dialog exclusions, and refresh clearing history. No language server starts during ordinary browsing.
+
+## Previous baseline results
 
 - 18 Rust integration/contract tests passed on macOS.
 - 10 frontend unit/contract tests passed.
@@ -69,14 +126,14 @@ This is a first memory reduction, not a fixed process-memory ceiling or proof of
 
 ## Release boundaries
 
-The project and application are now named **Peer**. The npm package and native executable are `peer`, the Rust library package is `peer-core`, and Mac artifacts are `Peer.app` and `Peer_0.1.0_universal.dmg`. Frontend/core tests and the 12-test native UI suite passed after the rename. The app retains the original `dev.repoinspector.app` identifier and storage location for existing reviews, preferences, and themes; `PEER_DATA_DIR` is the new override, with the previous override retained as a fallback.
+The project and application are now named **Peer**. The npm package and native executable are `peer`, the Rust library package is `peer-core`, and the supported Mac artifact is the Apple Silicon `Peer.app`, with an optional arm64 DMG. Frontend/core tests and the 12-test native UI suite passed after the rename. The app retains the original `dev.repoinspector.app` identifier and storage location for existing reviews, preferences, and themes; `PEER_DATA_DIR` is the new override, with the previous override retained as a fallback.
 
 The delivered `.app` and `.dmg` are development artifacts with a local ad-hoc signature. They are not Apple Developer ID signed or notarized. The release workflow accepts certificate/signing/notarization secrets; development builds require none.
 
-Windows/Linux core-test jobs are configured in CI but were not executed from this macOS workspace. The Intel executable was cross-compiled and packaged, not tested on an Intel Mac. Older macOS versions were not exercised here.
+Windows/Linux core-test jobs are configured in CI but were not executed from this macOS workspace. Intel Mac releases are no longer supported. Older macOS versions were not exercised here.
 
 To reproduce the local package without interactive Finder customization:
 
 ```sh
-CI=true APPLE_SIGNING_IDENTITY=- npm run bundle -- --target universal-apple-darwin
+CI=true APPLE_SIGNING_IDENTITY=- npm run bundle
 ```

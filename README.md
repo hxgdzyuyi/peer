@@ -6,38 +6,45 @@ Licensed under [Apache-2.0](LICENSE). Bundled dependencies and themes retain the
 
 ## Run and build
 
-Requirements: Node.js 22+, Rust 1.88+, Git, and [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/). On macOS, install Xcode Command Line Tools.
+Requirements: Node.js 22+, Rust 1.88+, Git, and [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/). Mac releases support Apple Silicon (arm64), with macOS 13 or later. Install Xcode Command Line Tools for macOS development.
 
 ```sh
 npm ci
 npm run desktop
 ```
 
-Production packages (without the test driver):
+Production Apple Silicon app (without the test driver):
 
 ```sh
+rustup target add aarch64-apple-darwin
 npm run bundle
-# Both Apple Silicon and Intel in one .app and .dmg:
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-npm run bundle -- --target universal-apple-darwin
+# Optional disk image:
+npm run bundle:dmg
 ```
 
-Artifacts are written to `target/[target-triple/]release/bundle`, including `macos/Peer.app` and `dmg/Peer_0.1.0_universal.dmg` for the universal Mac build. The executable is named `peer`. Development builds need no signing credentials. For distribution, configure Tauri's `APPLE_SIGNING_IDENTITY`, certificate/password, and Apple notarization credentials. `.github/workflows/macos-release.yml` packages a universal application and reads these from GitHub Actions secrets; unsigned builds are possible without them. macOS minimum version is 13.
+The app is written to `target/aarch64-apple-darwin/release/bundle/macos/Peer.app`. The optional disk image is written to `target/aarch64-apple-darwin/release/bundle/dmg`. The executable is named `peer`. Development builds need no signing credentials. For distribution, configure Tauri's `APPLE_SIGNING_IDENTITY`, certificate/password, and Apple notarization credentials. `.github/workflows/macos-release.yml` packages the Apple Silicon app and reads these from GitHub Actions secrets; unsigned builds are possible without them.
+
+The shared logo source is `assets/icon.svg`. After editing it, run `npm run icons` to regenerate the desktop icons; the header and welcome screen use the SVG directly.
 
 ## Review workflow
 
-Open a repository with the folder button or ⌘/Ctrl O. The first opening shows Changes if any exist, otherwise Code. The app restores the last repository, comparison, selected file, and scroll position. Refresh with the toolbar or ⌘/Ctrl R after your agent edits files.
+Open a repository with the **+** button beside the repository name or ⌘/Ctrl O. Click the repository name to switch among the 12 most recently opened repositories; the dropdown shows their paths and marks the current one. Use arrow keys and Enter to choose, or Escape to close. The first opening shows Changes if any exist, otherwise Code. The app restores each repository's comparison, selected file, and scroll position, and keeps comment drafts while switching. Refresh with the toolbar or ⌘/Ctrl R after your agent edits files.
 
 - **Code:** existing tracked files plus non-ignored untracked files in the working directory.
 - **All local changes:** HEAD against working files, combining staged and unstaged edits.
 - **Staged:** HEAD against the index. **Unstaged:** index against working files.
 - **Compare to branch:** the merge base of that branch and HEAD against working files. This includes committed branch changes and local edits. No automatic fetch.
+- **Commit history:** click the branch name beside Code/Changes to browse commits, with older history loaded on demand. Select a commit to review its diff against its first parent (or the empty tree for the initial commit). Merge commits show what they introduced relative to their first parent. These diffs use committed files, independent of local edits, with separate review comments for each commit. Choose All local changes in the comparison selector to return to the working directory.
 
-Filter filenames in the sidebar, use ⌘/Ctrl P for quick-open, ⌘/Ctrl F for in-file search, and ⌘/Ctrl G to jump to a line. Switch unified/split layouts or toggle whitespace markers in the viewer toolbar. Source tabs, spaces, CRLF, and trailing whitespace are retained. EditorConfig supplies tab width, falling back to the width in Settings.
+Filter filenames in the sidebar, use ⌘/Ctrl P for quick-open, ⌘/Ctrl F for in-file search, and ⌘/Ctrl G to jump to a line. Quick-open focuses the search field automatically; use ↑/↓ or Ctrl+P/Ctrl+N to highlight a result, then Enter to open it. Switch unified/split layouts or toggle whitespace markers in the viewer toolbar. Source tabs, spaces, CRLF, and trailing whitespace are retained. EditorConfig supplies tab width, falling back to the width in Settings.
+
+Search highlights the matching text in filenames and source. In-file Find highlights every visible occurrence in the selected file; Enter/Shift+Enter or the arrow buttons move between matches, with a stronger highlight on the current occurrence. Matching is literal and case-insensitive, including repeated matches on the same line. Press Esc or click Close search to hide Find and remove the source highlights.
 
 As you scroll Changes, the navigator highlights the file at the top of the diff viewport and keeps its row visible, expanding parent folders as needed. Keyboard focus and your filename filter are preserved.
 
-Settings → Viewer → Code font size adjusts Code and Changes from 10–32 px and is saved across restarts. Drag the top title bar, including the app name, to move the window.
+Drag the inner edge of either sidebar to resize it. Widths are remembered across restarts, and narrower windows temporarily reduce them to keep the source visible. Focus a divider and use Left/Right arrows to resize (Shift moves faster), Home/End for its limits, or double-click to reset its width. Esc cancels an active drag. The right-side width also applies to navigation results; hiding Feedback preserves its width and draft.
+
+Settings is organized into **Appearance**, **Viewer**, **Code navigation**, and **Git** tabs. Click a tab or use Left/Right arrows (Home/End jump to the first/last tab) while the tab row has focus. Each section scrolls independently, and switching tabs preserves unsaved language-server edits. Settings → Viewer → Code font size adjusts Code and Changes from 10–32 px and is saved across restarts. Drag the top title bar, including the app name, to move the window.
 
 Use the gutter **+** to comment on a line, or a file header's comment button for a file comment. Comments can be edited, deleted individually, or cleared from the active queue. Changes files can be marked Reviewed. Feedback is stored per worktree and branch, with distinct Code and comparison queues.
 
@@ -60,6 +67,32 @@ The toolbar Refresh button and Refresh Repository menu command reload immediatel
 
 File comments omit `line`. Line numbers are one-based; diff comments on the old side additionally include `"side": "old"`. Outdated comments are included with `"outdated": true`, retaining their original location. Copying does not clear feedback. Save JSON and the selectable clipboard fallback use the same concise format.
 
+## Code navigation
+
+Click a symbol or select its text, then press **F12** to open its definition. **⌘-click** on macOS, **Ctrl-click** on other platforms, and the source context menu do the same. At a definition, F12 opens a references panel; **Shift-F12** or **Find References** requests references directly. Multiple definitions appear as selectable results.
+
+Destinations open as complete, read-only source files, including files that are unchanged and absent from the diff list. In Changes, every repository jump retains the selected side: A uses HEAD (the index for Unstaged, or merge base for branch comparisons); B uses working files (the index for Staged). In split view, click the relevant column. In unified view, additions use B and deletions use A; the **Navigate shared lines** control chooses the version for unchanged lines, defaulting to B. The destination header identifies its version.
+
+**Ctrl+-** or the toolbar Back button restores the previous file, source selection, scroll position, and diff expansion state. History includes file selection, quick-open, search results, line jumps, comment jumps, and symbol jumps. It holds up to 100 entries for the current comparison and resets on refresh, comparison changes, or opening another repository. Source pages retain the original feedback queue and drafts; comments and Reviewed actions remain in the review view. Find and Go to Line operate on the displayed source page.
+
+Configure servers in **Settings → Code navigation**. Go, TypeScript/JavaScript, and Rust have presets. Servers and their toolchains must be installed locally; Peer does not install them or fetch dependencies. Suggested setup for the tested presets:
+
+```sh
+go install golang.org/x/tools/gopls@latest
+npm install -g typescript-language-server typescript@5.9.3
+rustup component add rust-analyzer rust-src
+```
+
+The TypeScript preset uses a tsserver-based TypeScript installation (tested with 5.9.3). TypeScript 7's native compiler does not supply `tsserver.js`; use a compatible installation or configure another LSP server. `initializationOptions.tsserver.path` can select a particular `tsserver.js`. The preset disables the separate syntax server so cross-file definitions use semantic analysis from the first query.
+
+Use an absolute executable path if the packaged application cannot find your server on PATH. **Advanced / custom servers** edits the JSON array of server definitions: `id`, `name`, `enabled`, `languages` (extensions without dots mapped to LSP language IDs), `executable`, `args`, `rootMarkers`, `env`, `initializationOptions`, and `settings`. Only one enabled server may claim an extension. Arguments are passed directly without a shell. Root markers are checked in their configured order, from the source's directory up to the snapshot root. Save applies the configuration; older saved preferences receive the default presets automatically.
+
+Analysis starts only when requested. Peer copies the chosen version into an isolated temporary workspace with its project files and configuration. It checks working-file stamps before and after copying; source changes during preparation require Refresh. Once prepared, navigation uses that frozen source until refresh. Up to four language-server sessions are retained, with a five-minute idle timeout and at most 32 open documents per session. Temporary workspaces are removed when their navigation context is released or the app exits.
+
+Locally installed dependencies are available to analysis. Returned dependency source is frozen for navigation and labelled **Installed dependency** or **Standard library**; it is not guaranteed to match a historical Git revision. Missing dependencies or toolchains can limit results. Rust build scripts and procedural macros are disabled by default, so generated symbols may be unavailable. Custom servers may need additional configuration for their language or build system.
+
+Installed JavaScript dependency trees are copied into the temporary workspace, with package links to repository files redirected to the selected snapshot. Their copy budget is 2 GiB; preparing a large installation can take time. Files over 64 MiB are excluded from analysis; large source previews retain the viewer's explicit-load behavior. Absolute imports that resolve back into live repository source are rejected instead of opening the wrong revision. Symbol navigation does not change repository files, Git's index, or review fingerprints.
+
 ## Themes
 
 Settings → Appearance includes System/Light/Dark modes, independent light/dark selections, searchable previews, and import/removal. GitHub Light/Dark, One Dark Pro, Dracula, and Catppuccin Latte/Mocha are bundled locally.
@@ -80,7 +113,7 @@ Git runs asynchronously with argument arrays, NUL-delimited path metadata, disab
 
 Snapshot IDs and source fingerprints prevent feedback from attaching to a different version. Saved comments retain their original anchors, Git revisions, timestamps, and code context internally. Copying or saving feedback exports only the relative filename, line number when applicable, and comment text, plus old-side/outdated markers when needed. Renamed files use their current comparison path.
 
-A future MCP adapter can instantiate the Rust `Inspector` against the same store. MCP transport, browser distribution, filesystem watching, history browsing, repository-wide search, symbol navigation, image comparison, and editing are not included.
+A future MCP adapter can instantiate the Rust `Inspector` against the same store. MCP transport, browser distribution, filesystem watching, Git history browsing, repository-wide text search, image comparison, and editing are not included.
 
 ## Validation
 
@@ -89,6 +122,8 @@ See [the validation record](docs/VALIDATION.md) for native test results, benchma
 ```sh
 npm test
 cargo test -p peer-core --locked
+# Optional real-server smoke test, after installing all three server presets:
+cargo test -p peer-core --test navigation real_language_servers -- --ignored
 npm run build:test-app
 npm run test:desktop
 # macOS memory workload (isolated app; includes compressed WebKit memory)
@@ -98,5 +133,7 @@ PEER_MEMORY_TEST=1 npm run test:desktop
 Desktop tests launch the actual app through WebdriverIO's embedded Tauri driver. They create a temporary Git repository and isolated data store. Test plugins and the frontend bridge are feature/environment gated and excluded from normal packages. Logs, screenshots, and performance measurements go into `test-results/`.
 
 The benchmark uses 100 changed TypeScript files and 10,000 changed lines. Targets: warm navigation below 100 ms and p95 scrolling frame intervals below 33 ms. Results include the reference CPU/OS. Files above 1 MiB or 20,000 lines require explicit loading; highlighting is bounded on long lines. A 64 MiB inspection limit protects the viewer from very large payloads.
+
+Local desktop runs enforce those timing targets by default and require an active, unlocked desktop. GitHub-hosted CI sets `PEER_PERFORMANCE_MODE=report`: it still measures performance, records whether the targets were exceeded in `performance.json`, and adds the measurements to the job summary. Functional failures still fail CI. Use `PEER_PERFORMANCE_MODE=enforce` on a controlled benchmark machine to enforce the same targets; `report` also permits functional checks when the host suspends animation frames, explicitly recording performance as unmeasured. Timing targets are not adjusted to make a slower run pass.
 
 CI runs Rust core tests on macOS, Windows, and Linux, frontend tests/builds, and the macOS desktop suite. Windows/Linux desktop releases remain future work; a CI configuration is not evidence of a completed remote run.
