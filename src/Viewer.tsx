@@ -20,11 +20,9 @@ import {
   FileCode2,
   MessageSquarePlus,
   Plus,
-  Check,
   LoaderCircle,
 } from "lucide-react";
 import type {
-  FileEntry,
   Preferences,
   ReviewComment,
   ReviewQueue,
@@ -1139,7 +1137,7 @@ export const Viewer = forwardRef<ViewerHandle, Props>(
                   checked={reviewed}
                   onChange={(e) => onReviewed(item.id, e.target.checked)}
                 />
-                <Check size={13} /> Reviewed
+                Reviewed
               </label>
             )}
           </div>

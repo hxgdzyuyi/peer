@@ -5,7 +5,6 @@ import {
   rendererThemeId,
   type Theme,
 } from "./themes";
-import { parseDiffFromFile } from "@pierre/diffs";
 
 describe("offline theme compatibility", () => {
   it("bundles six distinct, complete syntax themes", () => {
@@ -36,12 +35,5 @@ describe("offline theme compatibility", () => {
       "--fg": "#e6edf3",
     });
     expect(themeVariables({ ...theme, kind: "light" })["--fg"]).toBe("#24292f");
-  });
-  it("retains CRLF, tabs, trailing spaces, and missing final newline in diff source", () => {
-    const before = { name: "a.ts", contents: "\tconst a = 1;  \r\nlast" };
-    const after = { name: "renamed.ts", contents: "\tconst a = 2;  \r\nlast" };
-    const diff = parseDiffFromFile(before, after);
-    expect(diff.deletionLines.join("")).toBe(before.contents);
-    expect(diff.additionLines.join("")).toBe(after.contents);
   });
 });

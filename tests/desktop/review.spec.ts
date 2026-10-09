@@ -761,7 +761,6 @@ describe("Peer in the native webview", () => {
         frames: [] as number[],
         navigation: [] as number[],
         done: false,
-        started: performance.now(),
       };
       Object.assign(window, { __benchmark: state });
       const scroll = document.querySelector(".code-view") as HTMLElement;
@@ -829,7 +828,6 @@ describe("Peer in the native webview", () => {
           "Cannot enforce performance budgets: WKWebView animation frames are suspended. Rerun in an active desktop session.",
         );
       this.skip();
-      return;
     }
     await browser.waitUntil(
       () => browser.execute(() => (window as any).__benchmark.done),

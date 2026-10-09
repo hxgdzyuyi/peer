@@ -3,7 +3,7 @@ use fs2::FileExt;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Mutex,
 };
 
@@ -19,9 +19,6 @@ impl Store {
             directory,
             mutex: Mutex::new(()),
         })
-    }
-    pub fn directory(&self) -> &Path {
-        &self.directory
     }
     fn load_unlocked(&self) -> Result<AppData, String> {
         let path = self.directory.join("state.json");

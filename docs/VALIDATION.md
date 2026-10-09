@@ -2,6 +2,12 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Dead-code cleanup — 2026-10-09 JST
+
+Removed the unused `Store::directory` getter, an unread navigation-ref field, an always-hidden Reviewed icon, unused imports, redundant SVG styles, and unused benchmark state/control flow. Removed one duplicate parser whitespace test from `themes.test.ts`; `loaded-file.test.ts` retains exact source round-trip coverage for tabs, trailing spaces, CRLF, and missing final newlines. All desktop scenarios, Rust tests, and optional integration workloads remain.
+
+The strict TypeScript unused-local/parameter check and all 25 frontend/harness tests passed. `cargo test -p peer-core --locked` passed all 35 regular tests; the optional real-language-server test remained ignored. `npm run build:test-app` passed. The full native suite passed all 34 tests across five spec files without skips in performance report mode. Inspected screenshots of the Reviewed control, repository switcher, commit history, and collapsed-file Back restoration. The benchmark measured 18 ms scrolling p95 and 66 ms warm-navigation p95, within the unchanged targets. The separate memory workload was not rerun.
+
 ## Desktop collapse and navigation readiness — 2026-10-09 JST
 
 Investigated the two desktop failures from [run 37903620759](https://github.com/lantern24/peer/actions/runs/37903620759). The narrow-window check now uses the existing in-place click helper for collapse/expand and verifies that the intended file remains active. The embedded driver's normal click centers the element and focuses it, which can change the active file in the virtualized viewer before checking its horizontal scrollbar. The CI screenshot for this case is captured after the test's `finally` block restores the window and selects the first file, so it does not establish the active file at the original timeout.

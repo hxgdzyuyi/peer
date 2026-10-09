@@ -282,8 +282,6 @@ p {
   font-weight: 600;
   text-align: left;
 }
-.repository-button svg,
-.repository-menu svg,
 .repository-add {
   flex-shrink: 0;
 }
@@ -793,9 +791,6 @@ p {
 }
 .review-check input {
   margin: 0;
-}
-.review-check svg {
-  display: none;
 }
 .review-check.is-reviewed {
   color: var(--add);
@@ -1612,9 +1607,6 @@ mark.search-match {
   padding: 7px 8px;
   border-radius: 5px;
 }
-.branch-label svg {
-  flex-shrink: 0;
-}
 .branch-label span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1661,7 +1653,6 @@ mark.search-match {
   text-align: left;
 }
 .commit-history-item > svg {
-  flex-shrink: 0;
   color: var(--muted);
 }
 .commit-history-item[aria-current="true"] {
