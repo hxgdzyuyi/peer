@@ -528,14 +528,13 @@ pub async fn create_snapshot(
         } else {
             Source::Working(path.clone())
         };
-        let mut working_mode = new_info
+        let working_mode = new_info
             .and_then(|v| v.split_whitespace().next())
-            .unwrap_or("100644")
-            .to_string();
+            .unwrap_or("100644");
         #[cfg(unix)]
-        if let Some(m) = &metadata {
+        let working_mode = if let Some(m) = &metadata {
             use std::os::unix::fs::PermissionsExt;
-            working_mode = if m.file_type().is_symlink() {
+            if m.file_type().is_symlink() {
                 "120000"
             } else if m.is_dir() {
                 "160000"
@@ -544,8 +543,9 @@ pub async fn create_snapshot(
             } else {
                 "100644"
             }
-            .into();
-        }
+        } else {
+            working_mode
+        };
         let new_mode = if status == "deleted" {
             "absent"
         } else if comparison.mode == "staged" || commit.is_some() {
@@ -553,7 +553,7 @@ pub async fn create_snapshot(
                 .and_then(|v| v.split_whitespace().next())
                 .unwrap_or("absent")
         } else {
-            &working_mode
+            working_mode
         };
         let details = if kind == "submodule" {
             format!(
@@ -563,7 +563,7 @@ pub async fn create_snapshot(
                 new_info.map(String::as_str).unwrap_or("absent")
             )
         } else if comparison.view == "code" {
-            working_mode.clone()
+            working_mode.to_string()
         } else {
             format!(
                 "{} → {}",

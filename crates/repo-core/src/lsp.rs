@@ -1,5 +1,6 @@
 //! A small read-only stdio LSP client. Source coordinates are always UTF-16.
 use crate::navigation::{LanguageServer, NavigationError};
+use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -7,28 +8,28 @@ use std::{
     process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Weak,
     },
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Mutex as AsyncMutex},
 };
 
 type Reply = Result<Value, NavigationError>;
 struct Inner {
     sender: mpsc::UnboundedSender<Value>,
     pending: Mutex<HashMap<u64, oneshot::Sender<Reply>>>,
-    child: Mutex<Child>,
+    child: AsyncMutex<Child>,
     sequence: AtomicU64,
     failed: AtomicBool,
     stderr: Mutex<String>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
-        let _ = self.child.get_mut().unwrap().start_kill();
+        let _ = self.child.get_mut().start_kill();
     }
 }
 #[derive(Clone)]
@@ -43,7 +44,7 @@ struct Pending {
 impl Drop for Pending {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.upgrade() {
-            if inner.pending.lock().unwrap().remove(&self.id).is_some() {
+            if inner.pending.lock().remove(&self.id).is_some() {
                 let _ = inner.sender.send(
                     json!({"jsonrpc":"2.0", "method":"$/cancelRequest", "params":{"id":self.id}}),
                 );
@@ -102,7 +103,7 @@ impl Client {
         let inner = Arc::new(Inner {
             sender,
             pending: Mutex::new(HashMap::new()),
-            child: Mutex::new(child),
+            child: AsyncMutex::new(child),
             sequence: AtomicU64::new(1),
             failed: AtomicBool::new(false),
             stderr: Mutex::new(String::new()),
@@ -130,7 +131,7 @@ impl Client {
                     break;
                 }
                 let Some(inner) = weak.upgrade() else { break };
-                let mut text = inner.stderr.lock().unwrap();
+                let mut text = inner.stderr.lock();
                 text.push_str(&String::from_utf8_lossy(&buffer[..count]));
                 if text.len() > 8192 {
                     *text = text
@@ -225,7 +226,7 @@ impl Client {
                         let _ = inner.sender.send(reply);
                     }
                 } else if let Some(id) = message["id"].as_u64() {
-                    if let Some(sender) = inner.pending.lock().unwrap().remove(&id) {
+                    if let Some(sender) = inner.pending.lock().remove(&id) {
                         let result = if let Some(error) = message.get("error") {
                             Err(NavigationError::new(
                                 "serverError",
@@ -240,9 +241,9 @@ impl Client {
             };
             if let Some(inner) = weak.upgrade() {
                 inner.failed.store(true, Ordering::SeqCst);
-                let _ = inner.child.lock().unwrap().start_kill();
-                let detail = inner.stderr.lock().unwrap().clone();
-                for (_, sender) in inner.pending.lock().unwrap().drain() {
+                let _ = inner.child.lock().await.start_kill();
+                let detail = inner.stderr.lock().clone();
+                for (_, sender) in inner.pending.lock().drain() {
                     let _ = sender.send(Err(NavigationError::new(
                         "serverError",
                         format!("{failure}\n{detail}").trim(),
@@ -295,7 +296,7 @@ impl Client {
         }
         let id = self.inner.sequence.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
-        self.inner.pending.lock().unwrap().insert(id, sender);
+        self.inner.pending.lock().insert(id, sender);
         let _pending = Pending {
             inner: Arc::downgrade(&self.inner),
             id,
@@ -313,19 +314,19 @@ impl Client {
             && self
                 .inner
                 .child
-                .lock()
-                .unwrap()
-                .try_wait()
-                .ok()
-                .flatten()
-                .is_none()
+                .try_lock()
+                .map_or(true, |mut child| child.try_wait().ok().flatten().is_none())
     }
     pub async fn shutdown(&self) {
         let _ = self
             .request("shutdown", Value::Null, Duration::from_secs(1))
             .await;
         let _ = self.notify("exit", Value::Null);
-        let _ = self.inner.child.lock().unwrap().start_kill();
+        let mut child = self.inner.child.lock().await;
+        let _ = child.start_kill();
+        // Windows cannot remove the workspace while it is the server's current
+        // directory. Keep ownership and wait for exit before releasing it.
+        let _ = child.wait().await;
     }
 }
 
@@ -371,12 +372,18 @@ mod tests {
             .unwrap();
         assert_eq!(result[0]["range"]["start"]["line"], 1);
         client.shutdown().await;
-        for _ in 0..100 {
-            if !client.alive() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        assert!(
+            client
+                .inner
+                .child
+                .lock()
+                .await
+                .try_wait()
+                .unwrap()
+                .is_some(),
+            "shutdown returned before the language-server process exited"
+        );
         assert!(!client.alive());
+        root.close().unwrap();
     }
 }

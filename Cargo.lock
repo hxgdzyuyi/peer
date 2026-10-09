@@ -2585,6 +2585,7 @@ dependencies = [
  "fs2",
  "globset",
  "json5",
+ "parking_lot",
  "serde",
  "serde_json",
  "sha2",

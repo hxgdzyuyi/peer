@@ -2,6 +2,12 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Language-server shutdown cleanup — 2026-10-09 JST
+
+Language-server shutdown now waits for process exit before releasing the temporary workspace. The child process uses an async mutex so waiting does not block an executor thread. This addresses the Windows cleanup race where the server's current directory could still be in use when `TempDir` attempted deletion. The protocol test now checks the actual child exit status immediately after shutdown and explicitly closes the temporary directory, without a polling grace period. Working-file mode selection uses immutable, platform-specific bindings to avoid the Windows-only `unused_mut` warning while preserving Unix permission handling.
+
+`cargo test -p peer-core --locked` passed all 35 regular tests on macOS, including `sessions_documents_and_idle_retirement_are_bounded`; the optional real-language-server test remained ignored. Rust formatting checks passed. A throwaway runtime probe using the actual LSP client and existing Node fixture verified 20 shutdowns with immediate workspace removal, repeated shutdown, and concurrent shutdown. Five end-to-end navigation queries resolved the expected definition and removed every logged workspace on shutdown. The probe was removed afterward. Windows execution remains for the existing CI matrix; these local results do not claim a Windows rerun.
+
 ## Desktop assertion and driver fixes — 2026-10-09 JST
 
 Investigated [run 37892311931](https://github.com/lantern24/peer/actions/runs/37892311931) using its failure screenshots/state and the actual WKWebView app. Selection assertions retained the old current row while asynchronous navigation selected another row; they now wait for `aria-current` on the intended file. History checks read only the first split-diff column, missing the displayed additions; the history fixture now explicitly selects split layout and reads both columns.
