@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "bundle": "tauri build --bundles app,dmg",
+    "icons": "node scripts/generate-icons.mjs",
     "build:test-app": "node scripts/build-test-app.mjs",
     "format": "prettier --write src scripts tests *.json *.ts *.md && cargo fmt --all"
   },

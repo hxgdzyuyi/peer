@@ -1,8 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#163c41"/><stop offset="1" stop-color="#0a202a"/></linearGradient></defs>
-  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#g)"/>
-  <path d="M286 304h340M286 416h214M286 528h164" stroke="#a6c6c3" stroke-width="42" stroke-linecap="round"/>
-  <circle cx="585" cy="579" r="154" fill="#153940" stroke="#67e4bb" stroke-width="45"/>
-  <path d="m699 696 109 112" stroke="#67e4bb" stroke-width="55" stroke-linecap="round"/>
-  <path d="M522 579h126M585 516v126" stroke="#e4fff5" stroke-width="28" stroke-linecap="round"/>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+>
+  <title>Peer code diff</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#193E45" />
+      <stop offset="1" stop-color="#0B202B" />
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#tile)" />
+  <!-- Unchanged context surrounds the highlighted patch. -->
+  <path
+    d="M264 252h368M264 772h264"
+    fill="none"
+    stroke="#92B5BA"
+    stroke-opacity=".5"
+    stroke-width="40"
+    stroke-linecap="round"
+  />
+  <!-- Removed line. -->
+  <rect x="176" y="324" width="672" height="164" rx="44" fill="#54323C" />
+  <path
+    d="M256 406h96M448 406h296"
+    fill="none"
+    stroke="#FF9B94"
+    stroke-width="44"
+    stroke-linecap="round"
+  />
+  <!-- Added line; the plus also distinguishes it without color. -->
+  <rect x="176" y="536" width="672" height="164" rx="44" fill="#174B43" />
+  <path
+    d="M256 618h96M304 570v96M448 618h216"
+    fill="none"
+    stroke="#78EDC0"
+    stroke-width="44"
+    stroke-linecap="round"
+  />
 </svg>
