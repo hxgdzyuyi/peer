@@ -119,6 +119,39 @@ async function sourceContains(text: string) {
   );
 }
 
+async function clickInPlace(selector: string) {
+  // Centering a virtualized header can change the active file or evict it.
+  await $(selector).waitForEnabled();
+  await browser.execute(
+    (selector) => document.querySelector<HTMLElement>(selector)!.click(),
+    selector,
+  );
+}
+
+async function switchView(view: "Code" | "Changes") {
+  // The outgoing document remains visible while the new snapshot opens.
+  await $('[aria-label="Refresh repository"]').waitForEnabled();
+  const button = await $(`button=${view}`);
+  if (!(await button.getAttribute("class"))?.split(" ").includes("active"))
+    await button.click();
+  await browser.waitUntil(
+    () =>
+      browser.execute((view) => {
+        const active = document.querySelector(".view-switch button.active");
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh repository"]',
+        );
+        return (
+          active?.textContent?.trim() === view &&
+          refresh &&
+          !refresh.disabled &&
+          !document.querySelector(".refresh-overlay")
+        );
+      }, view),
+    { timeoutMsg: `${view} snapshot did not finish opening` },
+  );
+}
+
 describe("Version-aware navigation", () => {
   before(async () => {
     git("init", "-b", "main");
@@ -396,13 +429,23 @@ describe("Version-aware navigation", () => {
         };
       });
     await browser.waitUntil(async () =>
-      browser.execute(() =>
-        Array.from(document.querySelectorAll("diffs-container")).some((host) =>
-          host.shadowRoot?.querySelector('[data-line="80"][data-line-type]'),
-        ),
-      ),
+      browser.execute(() => {
+        const host = document
+          .querySelector('[data-file-path="call.ts"]')
+          ?.closest("diffs-container");
+        return (
+          document.querySelector(".code-view")!.scrollTop > 300 &&
+          !!host?.shadowRoot?.querySelector('[data-line="80"][data-line-type]')
+        );
+      }),
     );
     await $(".viewer-horizontal-scrollbar").waitForDisplayed();
+    await browser.waitUntil(() =>
+      browser.execute(() => {
+        const bar = document.querySelector(".viewer-horizontal-scrollbar")!;
+        return bar.scrollWidth - bar.clientWidth >= 60;
+      }),
+    );
     await browser.execute(() => {
       document.querySelector<HTMLElement>(
         ".viewer-horizontal-scrollbar",
@@ -478,7 +521,17 @@ describe("Version-aware navigation", () => {
           ),
         };
       });
+    await browser.waitUntil(async () => {
+      const current = await viewport();
+      return current.expanded && current.top > 300;
+    });
     await $(".viewer-horizontal-scrollbar").waitForDisplayed();
+    await browser.waitUntil(() =>
+      browser.execute(() => {
+        const bar = document.querySelector(".viewer-horizontal-scrollbar")!;
+        return bar.scrollWidth - bar.clientWidth >= 60;
+      }),
+    );
     await browser.execute(() => {
       document.querySelector<HTMLElement>(
         ".viewer-horizontal-scrollbar",
@@ -508,6 +561,7 @@ describe("Version-aware navigation", () => {
     expect(readFileSync(join(root, "defs.ts"), "utf8")).toBe(newDefinition);
     await key("-", true);
     await $('[aria-label="Refresh repository"]').click();
+    await $('[aria-label="Refresh repository"]').waitForEnabled();
     await browser.waitUntil(
       async () => !(await $('[aria-label="Go back"]').isEnabled()),
     );
@@ -521,15 +575,28 @@ describe("Version-aware navigation", () => {
       select.value = "old";
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await $("button=Code").click();
+    await switchView("Code");
     await $(".breadcrumb").waitForExist();
     await $('.tree-file[title="call.ts"]').click();
-    await $('[aria-label="Collapse call.ts"]').click();
+    await expect($('.tree-file[title="call.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await sourceContains("asdf(); // B");
+    await clickInPlace('[aria-label="Collapse call.ts"]');
+    await expect($('[aria-label="Expand call.ts"]')).toExist();
     await $('.tree-file[title="defs.ts"]').click();
+    await expect($('.tree-file[title="defs.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     await sourceContains("version B");
     await key("-", true);
     await $('[aria-label="Expand call.ts"]').waitForExist();
-    await $('[aria-label="Expand call.ts"]').click();
+    await browser.saveScreenshot(
+      resolve("test-results/navigation-back-collapsed.png"),
+    );
+    await clickInPlace('[aria-label="Expand call.ts"]');
     await browser.execute(() =>
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -568,9 +635,19 @@ describe("Version-aware navigation", () => {
     await key("-", true);
     await $('[aria-label="Quick open file"]').waitForDisplayed();
     await browser.keys("Enter");
+    await $('[aria-label="Quick open file"]').waitForExist({ reverse: true });
+    await expect($('.tree-file[title="keep.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     await sourceContains("export function keep");
     await key("-", true);
     await $('[data-file-path="call.ts"]').waitForExist();
+    await expect($('.tree-file[title="call.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await sourceContains("asdf(); // B");
   });
 
   it("searches the displayed full source and returns through search and symbol jumps", async () => {
@@ -630,9 +707,13 @@ describe("Version-aware navigation", () => {
   });
 
   it("highlights literal source matches through diff layouts, expanded context, and whitespace", async () => {
-    await $("button=Changes").click();
+    await switchView("Changes");
     await $('[data-file-path="call.ts"]').waitForExist();
     await $('.tree-file[title="call.ts"]').click();
+    await expect($('.tree-file[title="call.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     await $('button[aria-label="Find in file"]').click();
     const input = $('input[aria-label="Find in file"]');
     const marks = () =>

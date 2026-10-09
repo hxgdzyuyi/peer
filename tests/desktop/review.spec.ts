@@ -367,11 +367,24 @@ describe("Peer in the native webview", () => {
         "Scroll code horizontally: src/module-001.ts",
       );
       await $(".viewer-horizontal-scrollbar").waitForDisplayed();
-      await click('[aria-label="Collapse src/module-001.ts"]');
+      await clickInPlace('[aria-label="Collapse src/module-001.ts"]');
+      await expect($('[aria-label="Expand src/module-001.ts"]')).toExist();
+      await expect($('.tree-file[title="src/module-001.ts"]')).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
       await browser.waitUntil(
         async () => !(await $(".viewer-horizontal-scrollbar").isDisplayed()),
       );
-      await click('[aria-label="Expand src/module-001.ts"]');
+      await browser.saveScreenshot(
+        resolve("test-results/horizontal-collapsed.png"),
+      );
+      await clickInPlace('[aria-label="Expand src/module-001.ts"]');
+      await expect($('[aria-label="Collapse src/module-001.ts"]')).toExist();
+      await expect($('.tree-file[title="src/module-001.ts"]')).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
       await $(".viewer-horizontal-scrollbar").waitForDisplayed();
     } finally {
       await resize(1440, 940);
