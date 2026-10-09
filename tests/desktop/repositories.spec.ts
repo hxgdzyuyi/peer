@@ -155,9 +155,9 @@ describe("Repository switcher", () => {
     await expect($(".comment-composer")).not.toExist();
     await switchTo(first);
     await expect($(".view-switch button.active")).toHaveText("Code");
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "second.ts",
+    await expect($('.tree-file[title="second.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await browser.waitUntil(
       async () =>
@@ -210,9 +210,9 @@ describe("Repository switcher", () => {
     await waitForRepository(second);
     await switchTo(first);
     await expect($(".view-switch button.active")).toHaveText("Code");
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "second.ts",
+    await expect($('.tree-file[title="second.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
   });
 });

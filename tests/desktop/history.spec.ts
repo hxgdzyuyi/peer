@@ -37,11 +37,14 @@ async function selectCommit(id: string) {
 }
 async function source() {
   return browser.execute(() =>
-    Array.from(
-      document.querySelectorAll("diffs-container"),
-      (host) =>
-        host.shadowRoot?.querySelector("[data-code]")?.textContent ?? "",
-    ).join("\n"),
+    Array.from(document.querySelectorAll("diffs-container"))
+      .flatMap((host) =>
+        Array.from(
+          host.shadowRoot?.querySelectorAll("[data-code]") ?? [],
+          (column) => column.textContent ?? "",
+        ),
+      )
+      .join("\n"),
   );
 }
 
@@ -72,6 +75,8 @@ describe("Branch commit history", () => {
         await (window as any).__TAURI__.core.invoke("save_preferences", {
           preferences: {
             ...originalPreferences,
+            // Exercise both source columns even when this spec runs alone.
+            diffLayout: "split",
             lastRepository: root,
             sessions: {},
             recentRepositories: [root],

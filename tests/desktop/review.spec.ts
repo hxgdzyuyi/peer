@@ -29,6 +29,16 @@ async function click(selector: string) {
   }
 }
 
+async function clickInPlace(selector: string) {
+  // The embedded driver's click centers the element, which can change the
+  // active file or evict a short file's header from the virtualized viewport.
+  await $(selector).waitForEnabled();
+  await browser.execute(
+    (selector) => document.querySelector<HTMLElement>(selector)!.click(),
+    selector,
+  );
+}
+
 async function switchView(view: "Code" | "Changes") {
   // The previous document stays visible while a new snapshot opens. A Code
   // breadcrumb alone can therefore still belong to the outgoing snapshot.
@@ -618,9 +628,9 @@ describe("Peer in the native webview", () => {
   it("follows diff scrolling in the file navigator without moving focus or jumping back", async () => {
     await click('.tree-file[title="src/module-040.ts"]');
     await $('[data-file-path="src/module-040.ts"]').waitForExist();
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "src/module-040.ts",
+    await expect($('.tree-file[title="src/module-040.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await browser.waitUntil(async () =>
       browser.execute(
@@ -672,9 +682,9 @@ describe("Peer in the native webview", () => {
           ),
         { timeout: 10000, interval: 100 },
       );
-      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-        "title",
-        path,
+      await expect($(`.tree-file[title="${path}"]`)).toHaveAttribute(
+        "aria-current",
+        "true",
       );
       await browser.waitUntil(async () =>
         browser.execute(() => {
@@ -708,9 +718,9 @@ describe("Peer in the native webview", () => {
     await scrollToFile("src/module-040.ts", -1);
     // Sidebar clicks still navigate, and the passive selection does not undo it.
     await click('.tree-file[title="src/module-010.ts"]');
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "src/module-010.ts",
+    await expect($('.tree-file[title="src/module-010.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await $('[data-file-path="src/module-010.ts"]').waitForExist();
   });
@@ -1018,9 +1028,9 @@ describe("Peer in the native webview", () => {
       (_, i) => `anchor line ${i}: ${"wide content ".repeat(30)}\n`,
     ).join("");
     const ready = async (path: string, text: string) => {
-      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-        "title",
-        path,
+      await expect($(`.tree-file[title="${path}"]`)).toHaveAttribute(
+        "aria-current",
+        "true",
       );
       await browser.waitUntil(async () =>
         browser.execute(
@@ -1076,7 +1086,8 @@ describe("Peer in the native webview", () => {
       await $('[aria-label="Refresh repository"]').waitForEnabled();
       await click(`.tree-file[title="${collapsed}"]`);
       await ready(collapsed, "Keep collapsed");
-      await click(`[aria-label="Collapse ${collapsed}"]`);
+      await clickInPlace(`[aria-label="Collapse ${collapsed}"]`);
+      await expect($(`[aria-label="Expand ${collapsed}"]`)).toExist();
 
       for (let iteration = 0; iteration < 2; iteration++) {
         if (iteration) await click('[aria-label="Toggle diff layout"]');
@@ -1092,14 +1103,15 @@ describe("Peer in the native webview", () => {
           `[data-file-path="${target}"] [aria-label="Comment on selected line"]`,
         ).waitForExist();
         await browser.keys("Escape");
-        await browser.execute((path) => {
-          const host = document
-            .querySelector(`[data-file-path="${path}"]`)!
-            .closest("diffs-container")!;
-          for (const node of host.shadowRoot!.querySelectorAll("[data-code]"))
-            node.scrollLeft = 240;
+        await $(".viewer-horizontal-scrollbar").waitForDisplayed();
+        await browser.execute(() => {
           document.querySelector<HTMLElement>(".code-view")!.scrollTop += 137;
-        }, target);
+          // Use the visible control: virtualized source columns can be replaced
+          // while the go-to-line and vertical scroll layouts are settling.
+          document.querySelector<HTMLElement>(
+            ".viewer-horizontal-scrollbar",
+          )!.scrollLeft = 240;
+        });
         await browser.waitUntil(
           async () => (await viewport()).horizontal >= 200,
         );
@@ -1113,7 +1125,7 @@ describe("Peer in the native webview", () => {
           join(repo, preceding),
           "After\n".repeat((iteration + 1) * 400),
         );
-        await click(`[data-file-path="${target}"] .review-check input`);
+        await clickInPlace(`[data-file-path="${target}"] .review-check input`);
         await expect($(".error-banner")).toHaveText(
           expect.stringContaining("Source changed since this snapshot"),
         );
@@ -1164,18 +1176,26 @@ describe("Peer in the native webview", () => {
         );
         expect(Math.abs(after.offset! - before.offset!)).toBeLessThanOrEqual(2);
         expect(after.horizontal).toBe(before.horizontal);
-        await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-          "title",
-          target,
+        await expect($(`.tree-file[title="${target}"]`)).toHaveAttribute(
+          "aria-current",
+          "true",
         );
         await expect($(".error-banner")).not.toExist();
       }
       await browser.saveScreenshot(resolve("test-results/refresh-anchor.png"));
-      // Returning to an offscreen file also retains its collapse state.
+      // Scroll back without selecting the file, which would expand it.
+      // Earlier scenarios can leave changed files before this fixture.
       await browser.execute(() => {
         document.querySelector<HTMLElement>(".code-view")!.scrollTop = 0;
       });
-      await $(`[aria-label="Expand ${collapsed}"]`).waitForExist();
+      await browser.waitUntil(() =>
+        browser.execute((path) => {
+          if (document.querySelector(`[data-file-path="${path}"]`)) return true;
+          const scroll = document.querySelector<HTMLElement>(".code-view")!;
+          scroll.scrollTop += scroll.clientHeight / 2;
+          return false;
+        }, collapsed),
+      );
       await expect($(`[aria-label="Expand ${collapsed}"]`)).toExist();
       // If the viewed diff disappears, select the next surviving file.
       await click(`.tree-file[title="${target}"]`);
@@ -1183,16 +1203,12 @@ describe("Peer in the native webview", () => {
       unlinkSync(join(repo, target));
       await click('[aria-label="Refresh repository"]');
       await expect($(`.tree-file[title="${target}"]`)).not.toExist();
-      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-        "title",
-        "src/module-000.ts",
+      await expect($('.tree-file[title="src/module-000.ts"]')).toHaveAttribute(
+        "aria-current",
+        "true",
       );
       await click('.tree-file[title="src/module-010.ts"]');
       await ready("src/module-010.ts", "item10_");
-      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-        "title",
-        "src/module-010.ts",
-      );
     } finally {
       for (const path of [target, preceding, collapsed])
         if (existsSync(join(repo, path))) unlinkSync(join(repo, path));
@@ -1224,9 +1240,9 @@ describe("Peer in the native webview", () => {
     await browser.waitUntil(async () =>
       (await readSource())?.includes("Before refresh"),
     );
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "refresh-target.txt",
+    await expect($('.tree-file[title="refresh-target.txt"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await expect($(".breadcrumb")).toHaveText(
       expect.stringContaining("refresh-target.txt"),
@@ -1251,10 +1267,16 @@ describe("Peer in the native webview", () => {
     );
     const reviewed =
       '[data-file-path="refresh-target.txt"] .review-check input';
-    await click(reviewed);
-    await expect($(reviewed)).toBeSelected();
+    await clickInPlace(reviewed);
+    await browser.waitUntil(() =>
+      browser.execute(
+        (selector) =>
+          document.querySelector<HTMLInputElement>(selector)?.checked === true,
+        reviewed,
+      ),
+    );
     writeFileSync(path, "Changed before requesting refresh\n");
-    await click(reviewed);
+    await clickInPlace(reviewed);
     // A stale review action still offers a refresh without silently changing its source.
     await expect($(".error-banner")).toHaveText(
       expect.stringContaining("Source changed since this snapshot"),
@@ -1294,7 +1316,14 @@ exec ${quotedGit} "$@"
       );
       expect(existsSync(pending)).toBe(false);
       await expect($(".error-banner")).not.toExist();
-      await expect($(reviewed)).not.toBeSelected();
+      await browser.waitUntil(() =>
+        browser.execute(
+          (selector) =>
+            document.querySelector<HTMLInputElement>(selector)?.checked ===
+            false,
+          reviewed,
+        ),
+      );
     } finally {
       await click('[aria-label="Settings"]');
       await click("button=Git");

@@ -2,6 +2,25 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Desktop assertion and driver fixes — 2026-10-09 JST
+
+Investigated [run 37892311931](https://github.com/lantern24/peer/actions/runs/37892311931) using its failure screenshots/state and the actual WKWebView app. Selection assertions retained the old current row while asynchronous navigation selected another row; they now wait for `aria-current` on the intended file. History checks read only the first split-diff column, missing the displayed additions; the history fixture now explicitly selects split layout and reads both columns.
+
+The embedded driver's element click calls `scrollIntoView({block: "center"})` before clicking. That setup scroll changes the top visible file and can evict a virtualized header. Scroll-sensitive comment, collapse, and review setup now invokes the real DOM handlers without that forced scroll; sidebar drags still use WebDriver pointer actions. Review-state waits query the current checkbox after renderer updates. Refresh anchoring uses the visible horizontal scrollbar and finds the collapsed fixture by passive scrolling rather than assuming earlier scenarios left it first in the file list. No application behavior, timeouts, or performance targets were changed.
+
+Sidebar persistence checks use WebDriver refresh and require a new document `performance.timeOrigin` before checking restored widths, replacing a timer-triggered reload and custom window marker.
+
+The test-only window sets `backgroundThrottling: "disabled"` (supported on macOS 14+) after active-console runs also recorded suspended WKWebView animation frames. Normal packages retain the default scheduling policy. Performance measurements still require an unlocked desktop, and their targets are unchanged.
+
+Local debugging used `act`'s native macOS executor with the existing `mac-desktop` job, Node.js 22.23.3, and Rust 1.99.0. The workflow installs/selects host toolchains and runs the real Tauri build, not a Linux browser substitute. A locked-session attempt explicitly recorded suspended WKWebView animation frames; functional timeouts from that attempt are not evidence of an active-desktop regression.
+
+The final uninstrumented `act` job succeeded: TypeScript/Vite and the native test build passed, followed by all 34 desktop tests across five spec files with no skips. Refresh anchoring, restored sidebar widths, and split commit-diff screenshots were inspected. The refresh artifact preserved the same visible source text, vertical offset, and horizontal scroll across refresh. This completes the previously pending full desktop checks recorded below; it is a local native run, not a fresh GitHub-hosted or cross-platform core-test result.
+
+| Measurement              | Recorded p95 |   Target |
+| ------------------------ | -----------: | -------: |
+| Scrolling frame interval |        25 ms |  < 33 ms |
+| Warm file navigation     |        68 ms | < 100 ms |
+
 ## Apple Silicon releases — 2026-10-09 JST
 
 Mac releases now target only `aarch64-apple-darwin`. The default release command and packaging workflow produce an Apple Silicon `.app`; DMG packaging is optional via `npm run bundle:dmg`. Earlier universal-build measurements below are historical and do not describe the current supported architectures.

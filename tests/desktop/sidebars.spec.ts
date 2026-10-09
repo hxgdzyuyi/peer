@@ -61,9 +61,9 @@ describe("Resizable sidebars in the native webview", () => {
     await $('[aria-label="Refresh repository"]').waitForEnabled();
     await $('.tree-file[title="src/module-000.ts"]').click();
     await $('[data-file-path="src/module-000.ts"]').waitForExist();
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "src/module-000.ts",
+    await expect($('.tree-file[title="src/module-000.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await browser.waitUntil(() =>
       browser.execute(
@@ -100,7 +100,15 @@ describe("Resizable sidebars in the native webview", () => {
 
   it("drags both sidebars, preserves feedback drafts, and remembers widths after reload", async () => {
     const before = await geometry();
-    await $('[aria-label="Comment on file src/module-000.ts"]').click();
+    // The embedded driver's element click centers the target by scrolling.
+    // Open the draft through its real handler without moving the diff viewport.
+    await browser.execute(() =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Comment on file src/module-000.ts"]',
+        )!
+        .click(),
+    );
     await $('[aria-label="Comment text"]').setValue(
       "Keep this draft while resizing",
     );
@@ -118,9 +126,9 @@ describe("Resizable sidebars in the native webview", () => {
     await expect($('[aria-label="Comment text"]')).toHaveValue(
       "Keep this draft while resizing",
     );
-    await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
-      "title",
-      "src/module-000.ts",
+    await expect($('.tree-file[title="src/module-000.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
     );
     await $(".feedback-toggle").click();
     await $(right).waitForExist({ reverse: true });
@@ -137,12 +145,10 @@ describe("Resizable sidebars in the native webview", () => {
         saved().files === resized.files &&
         saved().feedback === resized.feedback,
     );
-    await browser.execute(() => {
-      (window as any).__sidebarReloadToken = true;
-      setTimeout(() => location.reload(), 100);
-    });
-    await browser.waitUntil(async () =>
-      browser.execute(() => !(window as any).__sidebarReloadToken),
+    const loadedAt = await browser.execute(() => performance.timeOrigin);
+    await browser.refresh();
+    await browser.waitUntil(() =>
+      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
     );
     await $(left).waitForExist();
     await browser.waitUntil(async () => {

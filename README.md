@@ -136,4 +136,16 @@ The benchmark uses 100 changed TypeScript files and 10,000 changed lines. Target
 
 Local desktop runs enforce those timing targets by default and require an active, unlocked desktop. GitHub-hosted CI sets `PEER_PERFORMANCE_MODE=report`: it still measures performance, records whether the targets were exceeded in `performance.json`, and adds the measurements to the job summary. Functional failures still fail CI. Use `PEER_PERFORMANCE_MODE=enforce` on a controlled benchmark machine to enforce the same targets; `report` also permits functional checks when the host suspends animation frames, explicitly recording performance as unmeasured. Timing targets are not adjusted to make a slower run pass.
 
+On macOS, run the desktop CI job locally with `act` using its native host executor:
+
+```sh
+caffeinate -d -i -u -t 1200 act push \
+  -W .github/workflows/ci.yml -j mac-desktop \
+  -P macos-latest=-self-hosted --no-cache-server \
+  --artifact-server-path /tmp/peer-act-artifacts \
+  --artifact-server-addr 127.0.0.1
+```
+
+Keep the desktop unlocked and avoid mouse/keyboard input throughout the run. `caffeinate` prevents idle sleep but cannot unlock an already locked session. This runs the workflow on your Mac, not in a GitHub VM or Docker container; its setup actions install/select host Rust and Node toolchains. Omit `--bind`: the native executor needs checkout to copy the working tree into its workspace. The local artifact server retains `desktop-test-results` under the specified directory.
+
 CI runs Rust core tests on macOS, Windows, and Linux, frontend tests/builds, and the macOS desktop suite. Windows/Linux desktop releases remain future work; a CI configuration is not evidence of a completed remote run.
