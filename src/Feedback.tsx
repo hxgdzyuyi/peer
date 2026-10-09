@@ -54,7 +54,7 @@ export function Feedback({
   const [editing, setEditing] = useState<string | null>(null);
   const [body, setBody] = useState("");
   return (
-    <aside className="feedback-panel">
+    <aside id="right-sidebar" className="feedback-panel">
       <div className="feedback-title">
         <h2>
           Feedback <span className="count">{queue.comments.length}</span>

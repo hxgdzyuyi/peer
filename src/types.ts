@@ -1,7 +1,7 @@
 export type View = "code" | "changes";
 export type Comparison = {
   view: View;
-  mode: "all" | "staged" | "unstaged" | "branch";
+  mode: "all" | "staged" | "unstaged" | "branch" | "commit";
   baseRef: string | null;
   includeUntracked: boolean;
 };
@@ -12,6 +12,15 @@ export type Repository = {
   branch: string;
   head: string | null;
 };
+export type Commit = {
+  id: string;
+  shortId: string;
+  subject: string;
+  author: string;
+  committedAt: string;
+  parents: string[];
+};
+export type CommitPage = { commits: Commit[]; hasMore: boolean };
 export type FileEntry = {
   id: string;
   path: string;
@@ -29,6 +38,7 @@ export type Snapshot = {
   comparison: Comparison;
   queueId: string;
   baseCommit: string | null;
+  commit?: Commit;
   files: FileEntry[];
 };
 export type FileContent = {
@@ -87,7 +97,10 @@ export type Appearance = {
   lightTheme: string;
   darkTheme: string;
 };
+export type SidebarWidths = { files: number; feedback: number };
 export type Preferences = {
+  sidebarWidths: SidebarWidths;
+  languageServers: LanguageServer[];
   appearance: Appearance;
   recentRepositories: string[];
   lastRepository: string | null;
@@ -120,6 +133,67 @@ export const defaultComparison: Comparison = {
   includeUntracked: true,
 };
 export const defaultPreferences: Preferences = {
+  sidebarWidths: { files: 244, feedback: 310 },
+  languageServers: [
+    {
+      id: "go",
+      name: "Go (gopls)",
+      enabled: true,
+      languages: { go: "go" },
+      executable: "gopls",
+      args: [],
+      rootMarkers: ["go.work", "go.mod"],
+      env: { GOPROXY: "off", GOTOOLCHAIN: "local", GOFLAGS: "-mod=readonly" },
+      initializationOptions: {},
+      settings: { gopls: { staticcheck: false } },
+    },
+    {
+      id: "typescript",
+      name: "TypeScript / JavaScript",
+      enabled: true,
+      languages: {
+        ts: "typescript",
+        tsx: "typescriptreact",
+        mts: "typescript",
+        cts: "typescript",
+        js: "javascript",
+        jsx: "javascriptreact",
+        mjs: "javascript",
+        cjs: "javascript",
+      },
+      executable: "typescript-language-server",
+      args: ["--stdio"],
+      rootMarkers: ["package.json", "tsconfig.json", "jsconfig.json"],
+      env: {},
+      initializationOptions: {
+        disableAutomaticTypingAcquisition: true,
+        tsserver: { useSyntaxServer: "never" },
+      },
+      settings: {},
+    },
+    {
+      id: "rust",
+      name: "Rust (rust-analyzer)",
+      enabled: true,
+      languages: { rs: "rust" },
+      executable: "rust-analyzer",
+      args: [],
+      rootMarkers: ["Cargo.toml", "rust-project.json"],
+      env: { CARGO_NET_OFFLINE: "true" },
+      initializationOptions: {
+        cargo: { buildScripts: { enable: false } },
+        procMacro: { enable: false },
+        checkOnSave: false,
+      },
+      settings: {
+        "rust-analyzer": {
+          cargo: { buildScripts: { enable: false } },
+          procMacro: { enable: false },
+          checkOnSave: false,
+        },
+      },
+    },
+  ],
   appearance: {
     mode: "system",
     lightTheme: "github-light",
@@ -133,4 +207,55 @@ export const defaultPreferences: Preferences = {
   codeFontSize: 12,
   diffLayout: "unified",
   gitExecutable: null,
+};
+
+export type LanguageServer = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  languages: Record<string, string>;
+  executable: string;
+  args: string[];
+  rootMarkers: string[];
+  env: Record<string, string>;
+  initializationOptions: unknown;
+  settings: unknown;
+};
+export type NavigationRequest = {
+  requestId: string;
+  snapshotId: string;
+  side: "old" | "new";
+  path: string | null;
+  documentId: string | null;
+  position: import("./navigation").SourcePosition;
+  operation: "auto" | "references";
+};
+export type NavigationLocation = {
+  documentId: string;
+  path: string;
+  range: import("./navigation").SourceRange;
+  preview: string;
+  label: string;
+  external: boolean;
+};
+export type NavigationResult = {
+  requestId: string;
+  snapshotId: string;
+  side: "old" | "new";
+  kind: "definitions" | "references";
+  locations: NavigationLocation[];
+};
+export type NavigationFile = {
+  tabWidth: number | null;
+  snapshotId: string;
+  side: "old" | "new";
+  documentId: string;
+  path: string;
+  label: string;
+  external: boolean;
+  content: string | null;
+  fingerprint: string;
+  size: number;
+  deferred: boolean;
+  kind: string;
 };

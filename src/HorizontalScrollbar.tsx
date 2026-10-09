@@ -5,7 +5,11 @@ import {
   useRef,
 } from "react";
 
-export type HorizontalScrollbarHandle = { refresh: () => void };
+export type HorizontalScrollbarHandle = {
+  refresh: (preservePosition?: boolean) => void;
+  sync: () => void;
+  restore: (target: { id: string; left: number } | null) => void;
+};
 
 // A virtualized file's own scrollbar can be below the viewport. Keep a native
 // scrollbar within reach and mirror only the active file's rendered columns.
@@ -16,44 +20,73 @@ export const HorizontalScrollbar = forwardRef<
   const bar = useRef<HTMLDivElement>(null);
   const getActiveHost = useRef(getHost);
   getActiveHost.current = getHost;
-  const refresh = useRef(() => {});
-  useImperativeHandle(ref, () => ({ refresh: () => refresh.current() }), []);
+  const refresh = useRef((_preservePosition?: boolean) => {});
+  const sync = useRef(() => {});
+  const restore = useRef((_target: { id: string; left: number } | null) => {});
+  useImperativeHandle(
+    ref,
+    () => ({
+      refresh: (preservePosition) => refresh.current(preservePosition),
+      sync: () => sync.current(),
+      restore: (target) => restore.current(target),
+    }),
+    [],
+  );
 
   useLayoutEffect(() => {
     const element = bar.current!;
     const spacer = element.firstElementChild as HTMLElement;
     let host: HTMLElement | undefined;
+    let hostIdentity: string | undefined;
     let columns: HTMLElement[] = [];
     let source: HTMLElement | undefined;
     let frame: number | undefined;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
     let mirroredLeft = 0;
+    let preserveOnRender = false;
+    let pendingRestore: { id: string; left: number } | null = null;
     const schedule = () => {
       frame ??= requestAnimationFrame(measure);
+      // WKWebView can suspend animation frames while a window is occluded.
+      // Programmatic navigation must still expose and restore its scrollbar.
+      fallback ??= setTimeout(measure, 100);
     };
     const observer = new ResizeObserver(schedule);
-    function measure() {
+    function measure(_timestamp?: number, preferSource = false) {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (fallback !== undefined) clearTimeout(fallback);
       frame = undefined;
+      fallback = undefined;
       const nextHost = getActiveHost.current();
+      const nextIdentity = nextHost?.dataset.navigationId;
+      const sameHost = host === nextHost && hostIdentity === nextIdentity;
       // A resize/render frame can run before the native scrollbar's scroll
       // event. Apply that pending user movement instead of resetting the bar
       // from the old code position (or a replaced highlighting DOM node).
       const pendingLeft =
-        host === nextHost && Math.abs(element.scrollLeft - mirroredLeft) > 1
+        !preferSource &&
+        sameHost &&
+        Math.abs(element.scrollLeft - mirroredLeft) > 1
           ? element.scrollLeft
           : undefined;
       const nextColumns = Array.from(
         nextHost?.shadowRoot?.querySelectorAll<HTMLElement>("[data-code]") ??
           [],
       );
-      if (
-        host !== nextHost ||
+      const replacedColumns =
         nextColumns.some((node, i) => node !== columns[i]) ||
-        nextColumns.length !== columns.length
-      ) {
+        nextColumns.length !== columns.length;
+      const retainedLeft =
+        !preferSource && sameHost && (replacedColumns || preserveOnRender)
+          ? mirroredLeft
+          : undefined;
+      preserveOnRender = false;
+      if (!sameHost || replacedColumns) {
         host?.shadowRoot?.removeEventListener("scroll", schedule, true);
         observer.disconnect();
         observer.observe(element);
         host = nextHost;
+        hostIdentity = nextIdentity;
         columns = nextColumns;
         host?.shadowRoot?.addEventListener("scroll", schedule, {
           capture: true,
@@ -72,8 +105,21 @@ export const HorizontalScrollbar = forwardRef<
             : widest,
         undefined,
       );
-      if (source && pendingLeft !== undefined) source.scrollLeft = pendingLeft;
+      if (source && (pendingLeft ?? retainedLeft) !== undefined)
+        source.scrollLeft = (pendingLeft ?? retainedLeft)!;
       const overflow = source ? source.scrollWidth - source.clientWidth : 0;
+      // Source columns can still be placeholders when a refreshed viewport is
+      // restored. Wait for the target's real overflow before consuming its offset.
+      if (
+        pendingRestore &&
+        pendingRestore.id === nextIdentity &&
+        source &&
+        source.clientWidth > 0 &&
+        (overflow > 0 || pendingRestore.left === 0)
+      ) {
+        source.scrollLeft = pendingRestore.left;
+        pendingRestore = null;
+      }
       spacer.style.width = `${element.clientWidth + overflow}px`;
       element.style.visibility = overflow > 1 ? "visible" : "hidden";
       element.tabIndex = overflow > 1 ? 0 : -1;
@@ -82,16 +128,33 @@ export const HorizontalScrollbar = forwardRef<
       mirroredLeft = element.scrollLeft;
     }
     const scroll = () => {
-      if (source && Math.abs(source.scrollLeft - element.scrollLeft) > 1)
+      // Ignore scroll events from our own mirror writes: they can arrive
+      // after a newer gesture over the code and must not undo that gesture.
+      if (source && Math.abs(element.scrollLeft - mirroredLeft) > 1) {
         source.scrollLeft = element.scrollLeft;
+        mirroredLeft = element.scrollLeft;
+      }
     };
     element.addEventListener("scroll", scroll, { passive: true });
-    refresh.current = schedule;
+    refresh.current = (preservePosition) => {
+      // WKWebView can clamp scrollLeft while code children are rewritten even
+      // when the column element itself survives. Preserve it across that render.
+      preserveOnRender ||= preservePosition ?? false;
+      schedule();
+    };
+    sync.current = () => measure(undefined, true);
+    restore.current = (target) => {
+      pendingRestore = target;
+      if (target) schedule();
+    };
     observer.observe(element);
     schedule();
     return () => {
       refresh.current = () => {};
+      sync.current = () => {};
+      restore.current = () => {};
       if (frame !== undefined) cancelAnimationFrame(frame);
+      if (fallback !== undefined) clearTimeout(fallback);
       observer.disconnect();
       host?.shadowRoot?.removeEventListener("scroll", schedule, true);
       element.removeEventListener("scroll", scroll);

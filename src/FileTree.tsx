@@ -9,6 +9,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import type { FileEntry, ReviewQueue } from "./types";
+import { SearchText, textMatches } from "./search";
 
 type Props = {
   files: FileEntry[];
@@ -42,8 +43,7 @@ export function FileTree({ files, selected, queue, onSelect, view }: Props) {
     }[] = [];
     const dirs = new Set<string>();
     for (const file of files) {
-      if (filter && !file.path.toLowerCase().includes(filter.toLowerCase()))
-        continue;
+      if (filter && !textMatches(file.path, filter).length) continue;
       if (filter) {
         result.push({ key: file.id, name: file.path, depth: 0, file });
         continue;
@@ -84,7 +84,7 @@ export function FileTree({ files, selected, queue, onSelect, view }: Props) {
       container.scrollTop += bounds.bottom - viewport.bottom;
   }, [selected, rows]);
   return (
-    <aside className="file-sidebar">
+    <aside id="file-sidebar" className="file-sidebar">
       <div className="sidebar-caption">
         <span>{view === "code" ? "REPOSITORY" : "CHANGED FILES"}</span>
         <span className="count">{files.length}</span>
@@ -112,7 +112,9 @@ export function FileTree({ files, selected, queue, onSelect, view }: Props) {
               onClick={() => onSelect(row.file!.id)}
             >
               <FileCode2 size={14} />
-              <span>{row.name}</span>
+              <span>
+                <SearchText text={row.name} query={filter} />
+              </span>
               {queue.comments.some((c) => c.path === row.file!.path) && (
                 <MessageSquare size={11} />
               )}

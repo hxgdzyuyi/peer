@@ -10,6 +10,11 @@ import {
 import { execFileSync } from "node:child_process";
 import { resolve, join } from "node:path";
 import { cpus, platform, release } from "node:os";
+import {
+  assessPerformance,
+  enforcePerformance,
+  performanceMode,
+} from "./performance";
 
 async function click(selector: string) {
   for (let attempt = 0; ; attempt++) {
@@ -22,6 +27,31 @@ async function click(selector: string) {
         throw error;
     }
   }
+}
+
+async function switchView(view: "Code" | "Changes") {
+  // The previous document stays visible while a new snapshot opens. A Code
+  // breadcrumb alone can therefore still belong to the outgoing snapshot.
+  await $('[aria-label="Refresh repository"]').waitForEnabled();
+  const button = await $(`button=${view}`);
+  if (!(await button.getAttribute("class"))?.split(" ").includes("active"))
+    await button.click();
+  await browser.waitUntil(
+    () =>
+      browser.execute((view) => {
+        const active = document.querySelector(".view-switch button.active");
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh repository"]',
+        );
+        return (
+          active?.textContent?.trim() === view &&
+          refresh &&
+          !refresh.disabled &&
+          !document.querySelector(".refresh-overlay")
+        );
+      }, view),
+    { timeoutMsg: `${view} snapshot did not finish opening` },
+  );
 }
 
 describe("Peer in the native webview", () => {
@@ -186,7 +216,7 @@ describe("Peer in the native webview", () => {
       for (const mode of ["unified", "split", "code"]) {
         if (mode === "split") await click('[aria-label="Toggle diff layout"]');
         if (mode === "code") {
-          await click("button=Code");
+          await switchView("Code");
           await $(".breadcrumb").waitForExist();
           await click('.tree-file[title="src/module-000.ts"]');
         }
@@ -319,7 +349,7 @@ describe("Peer in the native webview", () => {
             ) < 2,
         );
       }
-      await click("button=Changes");
+      await switchView("Changes");
       await click('[aria-label="Toggle diff layout"]');
       await click('.tree-file[title="src/module-001.ts"]');
       await expect($(".viewer-horizontal-scrollbar")).toHaveAttribute(
@@ -387,6 +417,7 @@ describe("Peer in the native webview", () => {
       "Keep this draft while resizing",
     );
     await click('[aria-label="Settings"]');
+    await click("button=Viewer");
     await chooseFont(16);
     await click('[aria-label="Close dialog"]');
     await waitForFont(16, 29);
@@ -398,18 +429,110 @@ describe("Peer in the native webview", () => {
       async () => readState().preferences.codeFontSize === 16,
     );
     expect(readState().queues).toEqual(queuesBefore);
-    await click("button=Code");
+    await switchView("Code");
     await waitForFont(16, 29);
     await browser.refresh();
     await $('[data-repository="benchmark-repo"]').waitForExist();
     await waitForFont(16, 29);
-    await click("button=Changes");
+    await switchView("Changes");
     await waitForFont(16, 29);
     await click('[aria-label="Settings"]');
+    await click("button=Viewer");
     await expect($("#code-font-size")).toHaveValue("16");
     await chooseFont(12);
     await click('[aria-label="Close dialog"]');
     await waitForFont(12, 22);
+  });
+
+  it("groups settings into keyboard-accessible tabs and preserves drafts between sections", async () => {
+    await $('[data-repository="benchmark-repo"]').waitForExist();
+    await click('[aria-label="Settings"]');
+    const active = () => $('[role="tab"][aria-selected="true"]');
+    // The embedded driver's key map omits Home and End; dispatch those DOM keys directly.
+    const endpointKey = (key: "Home" | "End") =>
+      browser.execute((value) => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: value,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }, key);
+    await expect(active()).toHaveText("Appearance");
+    await expect(active()).toBeFocused();
+    await browser.keys("ArrowRight");
+    await expect(active()).toHaveText("Viewer");
+    await expect($("#code-font-size")).toBeDisplayed();
+    await expect($('[aria-label="Search themes"]')).not.toBeDisplayed();
+    await browser.keys("ArrowRight");
+    await expect(active()).toHaveText("Code navigation");
+    await $('[aria-label="Go (gopls) executable"]').setValue(
+      "/tmp/unsaved-gopls",
+    );
+    await click("button=Advanced / custom servers");
+    const draft = await $(
+      '[aria-label="Language server configuration"]',
+    ).getValue();
+    await click("button=Git");
+    await expect($('[aria-label="Git executable path"]')).toBeDisplayed();
+    await expect(
+      $('[aria-label="Language server configuration"]'),
+    ).not.toBeDisplayed();
+    await browser.keys("ArrowLeft");
+    await expect(active()).toHaveText("Code navigation");
+    await expect($('[aria-label="Language server configuration"]')).toHaveValue(
+      draft,
+    );
+    await endpointKey("Home");
+    await expect(active()).toHaveText("Appearance");
+    await $('[aria-label="Search themes"]').setValue("Dracula");
+    await click("button=Viewer");
+    await endpointKey("End");
+    await expect(active()).toHaveText("Git");
+    await browser.keys("ArrowRight");
+    await expect(active()).toHaveText("Appearance");
+    await expect($('[aria-label="Search themes"]')).toHaveValue("Dracula");
+    await $('[aria-label="Search themes"]').setValue("");
+    const layout = await browser.execute(() => {
+      const dialog =
+        document.querySelector<HTMLDialogElement>(".settings-modal")!;
+      const tabs = dialog.querySelector<HTMLElement>('[role="tablist"]')!;
+      const panel = dialog.querySelector<HTMLElement>(
+        '[role="tabpanel"]:not([hidden])',
+      )!;
+      const top = tabs.getBoundingClientRect().top;
+      panel.scrollTop = panel.scrollHeight;
+      return {
+        top,
+        after: tabs.getBoundingClientRect().top,
+        outerScroll: dialog.scrollTop,
+        panelScroll: panel.scrollTop,
+        tabStops: dialog.querySelectorAll('[role="tab"][tabindex="0"]').length,
+        visiblePanels: dialog.querySelectorAll(
+          '[role="tabpanel"]:not([hidden])',
+        ).length,
+      };
+    });
+    expect(layout.after).toBe(layout.top);
+    expect(layout.outerScroll).toBe(0);
+    expect(layout.panelScroll).toBeGreaterThan(0);
+    expect(layout.tabStops).toBe(1);
+    expect(layout.visiblePanels).toBe(1);
+    await browser.execute(() => {
+      document.querySelector<HTMLElement>(
+        '[role="tabpanel"]:not([hidden])',
+      )!.scrollTop = 0;
+    });
+    await browser.saveScreenshot(resolve("test-results/settings-tabs.png"));
+    await browser.keys("Escape");
+    await $(".settings-modal").waitForExist({ reverse: true });
+    await click('[aria-label="Settings"]');
+    await click("button=Code navigation");
+    await expect($('[aria-label="Go (gopls) executable"]')).not.toHaveValue(
+      "/tmp/unsaved-gopls",
+    );
+    await click('[aria-label="Close dialog"]');
   });
 
   it("jumps beyond the viewport and saves a one-based line anchor and Reviewed state", async () => {
@@ -482,13 +605,13 @@ describe("Peer in the native webview", () => {
     );
     await click('[aria-label="Refresh repository"]');
     await $(".outdated-tag").waitForExist();
-    await click("button=Code");
+    await switchView("Code");
     await $(".breadcrumb").waitForExist();
     await expect($(".feedback-panel")).toHaveText(
       expect.stringContaining("General code review"),
     );
     await expect($(".comment-card")).not.toExist();
-    await click("button=Changes");
+    await switchView("Changes");
     await $(".outdated-tag").waitForExist();
   });
 
@@ -593,6 +716,7 @@ describe("Peer in the native webview", () => {
   });
 
   it("measures warm navigation and scrolling in WKWebView", async function () {
+    const mode = performanceMode(process.env.PEER_PERFORMANCE_MODE);
     // Keep focused benchmark runs comparable with the full desktop suite.
     await click('[aria-label="Settings"]');
     await click("button*=Dracula");
@@ -659,6 +783,7 @@ describe("Peer in the native webview", () => {
         JSON.stringify(
           {
             status: "unmeasured",
+            mode,
             reason:
               "WKWebView animation frames are suspended by the host; rerun in an active desktop session.",
             reference: {
@@ -671,6 +796,15 @@ describe("Peer in the native webview", () => {
           2,
         ),
       );
+      if (process.env.GITHUB_STEP_SUMMARY)
+        appendFileSync(
+          process.env.GITHUB_STEP_SUMMARY,
+          "\n### Desktop performance\n\nUnmeasured: WKWebView animation frames were suspended. See performance.json.\n",
+        );
+      if (mode === "enforce")
+        throw new Error(
+          "Cannot enforce performance budgets: WKWebView animation frames are suspended. Rerun in an active desktop session.",
+        );
       this.skip();
       return;
     }
@@ -693,11 +827,13 @@ describe("Peer in the native webview", () => {
         navigation: nav,
       };
     });
+    const assessment = assessPerformance(metrics, mode);
     writeFileSync(
       "test-results/performance.json",
       JSON.stringify(
         {
           ...metrics,
+          ...assessment,
           reference: {
             cpu: cpus()[0].model,
             platform: platform(),
@@ -709,11 +845,21 @@ describe("Peer in the native webview", () => {
         2,
       ),
     );
-    expect(metrics.scrollP95Ms).toBeLessThan(33);
-    expect(metrics.warmNavigationP95Ms).toBeLessThan(100);
+    if (process.env.GITHUB_STEP_SUMMARY)
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        `\n### Desktop performance (${mode})\n\n` +
+          `| Metric | Measured p95 | Target |\n| --- | ---: | ---: |\n` +
+          `| Scrolling | ${metrics.scrollP95Ms} ms | < 33 ms |\n` +
+          `| Warm navigation | ${metrics.warmNavigationP95Ms} ms | < 100 ms |\n\n` +
+          `Result: **${assessment.status}**. Full samples and machine details are in performance.json.\n`,
+      );
+    if (assessment.violations.length)
+      console.warn(`Performance ${mode}: ${assessment.violations.join("; ")}`);
+    enforcePerformance(assessment);
   });
   it("keeps plain-text layouts consistent through collapse, feedback, and theme updates", async () => {
-    await click("button=Code");
+    await switchView("Code");
     await $(".breadcrumb").waitForExist();
     await click('.tree-file[title="notes.txt"]');
     const readViewer = () =>
@@ -768,13 +914,13 @@ describe("Peer in the native webview", () => {
     );
     expect((await readViewer()).error).toBe("");
     await $(".outdated-tag").waitForExist();
-    await click("button=Changes");
+    await switchView("Changes");
   });
 
   // Native dragging changes OS window state; run it after scroll measurements.
 
   it("reloads evicted Code files without losing feedback or an open draft", async () => {
-    await click("button=Code");
+    await switchView("Code");
     await $(".breadcrumb").waitForExist();
     await click('.tree-file[title="src/module-000.ts"]');
     await click('[aria-label="Comment on file src/module-000.ts"]');
@@ -811,25 +957,248 @@ describe("Peer in the native webview", () => {
       ).find((b) => b.textContent === "Add comment")!;
       button.form!.requestSubmit(button);
     });
-    await browser.waitUntil(async () =>
-      (await $(".feedback-panel").getText()).includes(
-        "Draft survives source eviction",
-      ),
+    await browser.waitUntil(
+      () =>
+        browser.execute(
+          () =>
+            !document.querySelector(".comment-composer") &&
+            Array.from(
+              document.querySelectorAll(".feedback-panel .comment-card p"),
+            ).some(
+              (node) => node.textContent === "Draft survives source eviction",
+            ),
+        ),
+      {
+        timeoutMsg: "Saved eviction comment never appeared as a feedback card",
+      },
     );
+    await expect($(".error-banner")).not.toExist();
     await click('.tree-file[title="src/module-000.ts"]');
-    await browser.waitUntil(async () =>
-      browser.execute(() => {
-        const host = document
-          .querySelector('[data-file-path="src/module-000.ts"]')
-          ?.closest("diffs-container");
-        return (
-          host?.shadowRoot
+    await browser.waitUntil(
+      () =>
+        browser.execute(() => {
+          const host = document
+            .querySelector('[data-file-path="src/module-000.ts"]')
+            ?.closest("diffs-container");
+          return host?.shadowRoot
             ?.querySelector("[data-code]")
-            ?.textContent?.includes("item0_0") &&
-          host.textContent?.includes("Draft survives source eviction")
-        );
-      }),
+            ?.textContent?.includes("item0_0");
+        }),
+      {
+        timeoutMsg:
+          "Evicted module-000 source did not render at its first line",
+      },
     );
+    await browser.waitUntil(
+      () =>
+        browser.execute(() => {
+          const host = document
+            .querySelector('[data-file-path="src/module-000.ts"]')
+            ?.closest("diffs-container");
+          return Array.from(
+            host?.querySelectorAll(".inline-comment p") ?? [],
+          ).some(
+            (node) => node.textContent === "Draft survives source eviction",
+          );
+        }),
+      {
+        timeoutMsg:
+          "Reloaded source is visible, but its saved inline comment is missing",
+      },
+    );
+  });
+
+  it("keeps refresh anchored to the visible diff through snapshot expiry and layout changes", async () => {
+    const repo = process.env.PEER_TEST_REPO!;
+    const target = "refresh-anchor-b.txt";
+    const preceding = "refresh-anchor-a.txt";
+    const collapsed = "refresh-anchor-0.txt";
+    const source = Array.from(
+      { length: 180 },
+      (_, i) => `anchor line ${i}: ${"wide content ".repeat(30)}\n`,
+    ).join("");
+    const ready = async (path: string, text: string) => {
+      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
+        "title",
+        path,
+      );
+      await browser.waitUntil(async () =>
+        browser.execute(
+          (path, text) =>
+            document
+              .querySelector(`[data-file-path="${path}"]`)
+              ?.closest("diffs-container")
+              ?.shadowRoot?.querySelector("[data-code]")
+              ?.textContent?.includes(text) ?? false,
+          path,
+          text,
+        ),
+      );
+    };
+    const viewport = () =>
+      browser.execute((path) => {
+        const host = document
+          .querySelector(`[data-file-path="${path}"]`)
+          ?.closest("diffs-container");
+        const bounds = document
+          .querySelector(".code-view")!
+          .getBoundingClientRect();
+        const header = host
+          ?.querySelector(".file-heading")
+          ?.getBoundingClientRect();
+        const line = Array.from(
+          host?.shadowRoot?.querySelectorAll<HTMLElement>(
+            "[data-line][data-line-type]",
+          ) ?? [],
+        ).find(
+          (line) =>
+            line.getBoundingClientRect().top >=
+              (header?.bottom ?? bounds.top) &&
+            line.getBoundingClientRect().bottom < bounds.bottom,
+        );
+        return {
+          text: line?.textContent,
+          offset: line ? line.getBoundingClientRect().top - bounds.top : null,
+          horizontal: Math.max(
+            0,
+            ...Array.from(
+              host?.shadowRoot?.querySelectorAll("[data-code]") ?? [],
+            ).map((node) => node.scrollLeft),
+          ),
+        };
+      }, target);
+    try {
+      writeFileSync(join(repo, target), source);
+      writeFileSync(join(repo, preceding), "Before\n".repeat(80));
+      writeFileSync(join(repo, collapsed), "Keep collapsed\n".repeat(80));
+      if (await $(".breadcrumb").isExisting()) await switchView("Changes");
+      await click('[aria-label="Refresh repository"]');
+      await $('[aria-label="Refresh repository"]').waitForEnabled();
+      await click(`.tree-file[title="${collapsed}"]`);
+      await ready(collapsed, "Keep collapsed");
+      await click(`[aria-label="Collapse ${collapsed}"]`);
+
+      for (let iteration = 0; iteration < 2; iteration++) {
+        if (iteration) await click('[aria-label="Toggle diff layout"]');
+        await click(`.tree-file[title="${preceding}"]`);
+        await ready(preceding, iteration ? "After" : "Before");
+        await click(`.tree-file[title="${target}"]`);
+        await ready(target, "anchor line");
+        if (!(await $('input[aria-label="Go to line"]').isExisting()))
+          await click('button[aria-label="Find in file"]');
+        await $('input[aria-label="Go to line"]').setValue("100");
+        await browser.keys("Enter");
+        await $(
+          `[data-file-path="${target}"] [aria-label="Comment on selected line"]`,
+        ).waitForExist();
+        await browser.keys("Escape");
+        await browser.execute((path) => {
+          const host = document
+            .querySelector(`[data-file-path="${path}"]`)!
+            .closest("diffs-container")!;
+          for (const node of host.shadowRoot!.querySelectorAll("[data-code]"))
+            node.scrollLeft = 240;
+          document.querySelector<HTMLElement>(".code-view")!.scrollTop += 137;
+        }, target);
+        await browser.waitUntil(
+          async () => (await viewport()).horizontal >= 200,
+        );
+        let before = await viewport();
+        expect(before.text).toContain("anchor line");
+        writeFileSync(
+          join(repo, target),
+          "Inserted above\n".repeat((iteration + 1) * 3) + source,
+        );
+        writeFileSync(
+          join(repo, preceding),
+          "After\n".repeat((iteration + 1) * 400),
+        );
+        await click(`[data-file-path="${target}"] .review-check input`);
+        await expect($(".error-banner")).toHaveText(
+          expect.stringContaining("Source changed since this snapshot"),
+        );
+        await browser.execute(() => {
+          document.querySelector<HTMLElement>(
+            ".viewer-horizontal-scrollbar",
+          )!.scrollLeft = 240;
+        });
+        await browser.waitUntil(
+          async () => (await viewport()).horizontal >= 200,
+        );
+        // The error banner changes viewport height; capture the location the
+        // user actually sees immediately before pressing Refresh.
+        before = await viewport();
+        await browser.saveScreenshot(
+          resolve("test-results/refresh-anchor-before.png"),
+        );
+        await click('[aria-label="Refresh repository"]');
+        await browser.waitUntil(
+          async () =>
+            (await $(`[data-file-path="${target}"] .add`).getText()) ===
+            `+${180 + (iteration + 1) * 3}`,
+        );
+        await ready(target, "anchor line");
+        try {
+          await browser.waitUntil(async () => {
+            const after = await viewport();
+            return (
+              after.text === before.text &&
+              after.horizontal === before.horizontal &&
+              Math.abs(after.offset! - before.offset!) <= 2
+            );
+          });
+        } catch (error) {
+          writeFileSync(
+            "test-results/refresh-anchor-state.json",
+            JSON.stringify({ before, after: await viewport() }, null, 2),
+          );
+          await browser.saveScreenshot(
+            resolve("test-results/refresh-anchor-after.png"),
+          );
+          throw error;
+        }
+        const after = await viewport();
+        writeFileSync(
+          "test-results/refresh-anchor-state.json",
+          JSON.stringify({ before, after }, null, 2),
+        );
+        expect(Math.abs(after.offset! - before.offset!)).toBeLessThanOrEqual(2);
+        expect(after.horizontal).toBe(before.horizontal);
+        await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
+          "title",
+          target,
+        );
+        await expect($(".error-banner")).not.toExist();
+      }
+      await browser.saveScreenshot(resolve("test-results/refresh-anchor.png"));
+      // Returning to an offscreen file also retains its collapse state.
+      await browser.execute(() => {
+        document.querySelector<HTMLElement>(".code-view")!.scrollTop = 0;
+      });
+      await $(`[aria-label="Expand ${collapsed}"]`).waitForExist();
+      await expect($(`[aria-label="Expand ${collapsed}"]`)).toExist();
+      // If the viewed diff disappears, select the next surviving file.
+      await click(`.tree-file[title="${target}"]`);
+      await ready(target, "anchor line");
+      unlinkSync(join(repo, target));
+      await click('[aria-label="Refresh repository"]');
+      await expect($(`.tree-file[title="${target}"]`)).not.toExist();
+      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
+        "title",
+        "src/module-000.ts",
+      );
+      await click('.tree-file[title="src/module-010.ts"]');
+      await ready("src/module-010.ts", "item10_");
+      await expect($('.tree-file[aria-current="true"]')).toHaveAttribute(
+        "title",
+        "src/module-010.ts",
+      );
+    } finally {
+      for (const path of [target, preceding, collapsed])
+        if (existsSync(join(repo, path))) unlinkSync(join(repo, path));
+      await click('[aria-label="Refresh repository"]');
+      await $('[aria-label="Refresh repository"]').waitForEnabled();
+    }
   });
 
   it("refreshes Code and Changes in one click, including an interrupted snapshot", async () => {
@@ -844,7 +1213,7 @@ describe("Peer in the native webview", () => {
             ?.closest("diffs-container")
             ?.shadowRoot?.querySelector("[data-code]")?.textContent,
       );
-    if (!(await $(".breadcrumb").isExisting())) await click("button=Code");
+    if (!(await $(".breadcrumb").isExisting())) await switchView("Code");
     await $(".breadcrumb").waitForExist();
     await $('[aria-label="Refresh repository"]').waitForEnabled();
     writeFileSync(path, "Before refresh\n");
@@ -874,7 +1243,7 @@ describe("Peer in the native webview", () => {
     await expect($('.tree-file[title="refresh-added.txt"]')).toExist();
     await expect($(".error-banner")).not.toExist();
 
-    await click("button=Changes");
+    await switchView("Changes");
     await $(".breadcrumb").waitForExist({ reverse: true });
     await click('.tree-file[title="refresh-target.txt"]');
     await browser.waitUntil(async () =>
@@ -913,6 +1282,7 @@ exec ${quotedGit} "$@"
     chmodSync(wrapper, 0o755);
     writeFileSync(pending, "");
     await click('[aria-label="Settings"]');
+    await click("button=Git");
     await $('[aria-label="Git executable path"]').setValue(wrapper);
     await click('[aria-label="Close dialog"]');
     try {
@@ -927,6 +1297,7 @@ exec ${quotedGit} "$@"
       await expect($(reviewed)).not.toBeSelected();
     } finally {
       await click('[aria-label="Settings"]');
+      await click("button=Git");
       await $('[aria-label="Git executable path"]').setValue("");
       await click('[aria-label="Close dialog"]');
     }

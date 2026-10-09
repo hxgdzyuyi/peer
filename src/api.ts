@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Bootstrap,
   Comparison,
+  CommitPage,
   FileContent,
   ImportedTheme,
   NewComment,
@@ -9,9 +10,28 @@ import type {
   ReviewComment,
   ReviewQueue,
   Snapshot,
+  NavigationRequest,
+  NavigationResult,
+  NavigationFile,
 } from "./types";
 
 export const api = {
+  navigate: (request: NavigationRequest) =>
+    invoke<NavigationResult>("navigate_symbol", { request }),
+  navigationFile: (
+    snapshotId: string,
+    side: "old" | "new",
+    documentId: string,
+    force = false,
+  ) =>
+    invoke<NavigationFile>("read_navigation_file", {
+      snapshotId,
+      side,
+      documentId,
+      force,
+    }),
+  cancelNavigation: (requestId: string) =>
+    invoke<void>("cancel_navigation", { requestId }),
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
   savePreferences: (preferences: Preferences) =>
     invoke<void>("save_preferences", { preferences }),
@@ -21,6 +41,8 @@ export const api = {
     invoke<FileContent>("read_file", { snapshotId, fileId, force }),
   branches: (snapshotId: string) =>
     invoke<string[]>("list_branches", { snapshotId }),
+  commits: (snapshotId: string, offset = 0, limit = 50) =>
+    invoke<CommitPage>("list_commits", { snapshotId, offset, limit }),
   queue: (snapshotId: string) =>
     invoke<ReviewQueue>("get_queue", { snapshotId }),
   comment: (comment: NewComment) =>

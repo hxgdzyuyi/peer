@@ -10,6 +10,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
       - run: cargo test -p peer-core --locked
   frontend:
     runs-on: ubuntu-latest
@@ -30,7 +32,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build:test-app
-      - run: npm run test:desktop
+      - name: Run desktop checks and record performance
+        run: npm run test:desktop
+        env:
+          # Hosted runner timing is recorded, not used as a fixed-machine gate.
+          # Local runs still enforce the 33 ms / 100 ms targets by default.
+          PEER_PERFORMANCE_MODE: report
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: desktop-test-results, path: test-results }

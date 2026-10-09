@@ -1,22 +1,25 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
 export function Modal({
   title,
   children,
   onClose,
   className = "",
+  initialFocus,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   className?: string;
+  initialFocus?: RefObject<HTMLElement | null>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current!;
     dialog.showModal();
+    initialFocus?.current?.focus();
     return () => dialog.close();
-  }, []);
+  }, [initialFocus]);
   return (
     <dialog
       ref={ref}

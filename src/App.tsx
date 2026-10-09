@@ -7,22 +7,21 @@ import { listen } from "@tauri-apps/api/event";
 import {
   BookOpen,
   Check,
-  ChevronRight,
   Code2,
   FileDiff,
   FolderOpen,
-  GitBranch,
   LoaderCircle,
   MessageSquare,
   RefreshCw,
-  ScanSearch,
   Search,
   Settings2,
   SplitSquareHorizontal,
   Text,
   X,
   ArrowRight,
+  ArrowLeft,
 } from "lucide-react";
+import appIcon from "../assets/icon.svg";
 import { api } from "./api";
 import {
   defaultComparison,
@@ -38,12 +37,22 @@ import { applyTheme, builtins, registerThemes, type Theme } from "./themes";
 import { parseDiff } from "./parse-diff";
 import { Viewer, type LoadedFile, type ViewerHandle } from "./Viewer";
 import { FileTree } from "./FileTree";
+import { ResizableWorkspace } from "./ResizableWorkspace";
 import { Feedback, type Draft } from "./Feedback";
-import { Settings } from "./Settings";
+import { Settings, type SettingsTab } from "./Settings";
 import { Modal } from "./Modal";
+import { QuickOpen } from "./QuickOpen";
+import { RepositorySwitcher } from "./RepositorySwitcher";
+import { CommitHistory, commitDate } from "./CommitHistory";
+import { textMatches, type SourceMatch } from "./search";
 import { HighlightCacheBudget } from "./HighlightCacheBudget";
 import { SourceCache } from "./memory";
 import { retainFile, sourceLines } from "./loaded-file";
+import { useNavigation } from "./useNavigation";
+import { NavigationSource } from "./NavigationSource";
+import { NavigationResults } from "./NavigationResults";
+import type { ViewportState } from "./navigation";
+import { refreshedViewport } from "./refresh";
 
 const poolOptions = {
   workerFactory: () => new HighlightWorker(),
@@ -51,6 +60,7 @@ const poolOptions = {
   totalASTLRUCacheSize: 12,
 };
 const highlighterOptions = {
+  useTokenTransformer: true,
   theme: "inspector-github-light",
   preferredHighlighter: "shiki-wasm" as const,
   tokenizeMaxLineLength: 1500,
@@ -92,16 +102,17 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [feedback, setFeedback] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, Draft | undefined>>({});
   const [quickOpen, setQuickOpen] = useState(false);
-  const [quickFilter, setQuickFilter] = useState("");
   const [findOpen, setFindOpen] = useState(false);
+  const findFocus = useRef("Find in file");
   const [findText, setFindText] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
   const [lineInput, setLineInput] = useState("");
   const [exportText, setExportText] = useState<string | null>(null);
+  const [navigationSide, setNavigationSide] = useState<"old" | "new">("new");
   const [systemDark, setSystemDark] = useState(
     matchMedia("(prefers-color-scheme: dark)").matches,
   );
@@ -123,6 +134,11 @@ export default function App() {
   );
   const lastChanges = useRef<Comparison>(defaultComparison);
   const scrollToRestore = useRef<number | null>(null);
+  const refreshToRestore = useRef<{
+    snapshotId: string;
+    state: ViewportState;
+    started: boolean;
+  } | null>(null);
 
   const reportError = useCallback(
     (error: unknown) =>
@@ -171,6 +187,26 @@ export default function App() {
         (f) => f.id === selectionRef.current,
       )?.path;
       const previousScroll = viewer.current?.scrollTop() ?? 0;
+      const previousViewport = viewer.current?.capture();
+      if (scrollTimer.current) clearTimeout(scrollTimer.current);
+      // Capture the outgoing session before a fast switch can cancel the
+      // debounced scroll save. The destination uses its own saved session.
+      if (previous && previous.repository.root !== path) {
+        const nextPreferences = {
+          ...preferencesRef.current,
+          sessions: {
+            ...preferencesRef.current.sessions,
+            [previous.repository.root]: {
+              comparison: previous.comparison,
+              lastChanges: lastChanges.current,
+              selectedPath: oldPath ?? null,
+              scrollTop: previousScroll,
+            },
+          },
+        };
+        preferencesRef.current = nextPreferences;
+        setPreferences(nextPreferences);
+      }
       setBusy(true);
       setError("");
       try {
@@ -195,21 +231,37 @@ export default function App() {
           previous?.repository.root === next.repository.root
             ? oldPath
             : stored?.selectedPath;
+        const viewport =
+          previous &&
+          previousViewport &&
+          previous.repository.root === next.repository.root &&
+          JSON.stringify(previous.comparison) ===
+            JSON.stringify(next.comparison)
+            ? refreshedViewport(previousViewport, previous.files, next.files)
+            : null;
         const nextSelected =
+          viewport?.anchor?.id ??
           next.files.find((f) => f.path === wantedPath)?.id ??
           next.files[0]?.id ??
           null;
         setSelected(nextSelected);
+        selectionRef.current = nextSelected;
+        refreshToRestore.current = viewport
+          ? { snapshotId: next.id, state: viewport, started: false }
+          : null;
         lastChanges.current =
           next.comparison.view === "changes"
             ? next.comparison
             : (stored?.lastChanges ?? defaultComparison);
-        scrollToRestore.current =
-          previous?.queueId === next.queueId
+        scrollToRestore.current = viewport
+          ? null
+          : previous?.queueId === next.queueId
             ? previousScroll
-            : stored?.comparison.view === next.comparison.view
-              ? stored.scrollTop
-              : 0;
+            : next.commit && previous?.commit?.id !== next.commit.id
+              ? 0
+              : stored?.comparison.view === next.comparison.view
+                ? stored.scrollTop
+                : 0;
         setPreferences((p) => ({
           ...p,
           lastRepository: next.repository.root,
@@ -224,7 +276,7 @@ export default function App() {
               lastChanges: lastChanges.current,
               selectedPath:
                 next.files.find((f) => f.id === nextSelected)?.path ?? null,
-              scrollTop: scrollToRestore.current ?? 0,
+              scrollTop: viewport?.top ?? scrollToRestore.current ?? 0,
             },
           },
         }));
@@ -330,21 +382,13 @@ export default function App() {
     },
     [loadFile],
   );
-  useEffect(() => {
-    if (snapshot && selected) requestFile(selected);
-  }, [snapshot, selected, requestFile]);
-  useEffect(() => {
-    if (selected && loaded[selected] && scrollToRestore.current !== null) {
-      const top = scrollToRestore.current;
-      scrollToRestore.current = null;
-      queueMicrotask(() => viewer.current?.restore(top));
-    }
-  }, [loaded, selected]);
   const saveScroll = useCallback((top: number) => {
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    if (refreshToRestore.current || scrollToRestore.current !== null) return;
+    const s = snapshotRef.current;
     scrollTimer.current = setTimeout(() => {
-      const s = snapshotRef.current;
-      if (!s) return;
+      if (!s || s.id !== snapshotRef.current?.id || refreshToRestore.current)
+        return;
       setPreferences((p) => ({
         ...p,
         sessions: {
@@ -360,12 +404,45 @@ export default function App() {
       }));
     }, 600);
   }, []);
+  useEffect(() => {
+    if (snapshot && selected)
+      requestFile(
+        selected,
+        refreshToRestore.current?.state.manuallyLoaded?.includes(selected),
+      );
+  }, [snapshot, selected, requestFile]);
+  useEffect(() => {
+    const pending = refreshToRestore.current;
+    if (
+      pending &&
+      !pending.started &&
+      pending.snapshotId === snapshot?.id &&
+      selected &&
+      (loaded[selected] || errors[selected]) &&
+      viewer.current
+    ) {
+      pending.started = true;
+      viewer.current.restoreState(pending.state, () => {
+        if (refreshToRestore.current === pending) {
+          refreshToRestore.current = null;
+          saveScroll(viewer.current?.scrollTop() ?? 0);
+        }
+      });
+      return;
+    }
+    if (selected && loaded[selected] && scrollToRestore.current !== null) {
+      const top = scrollToRestore.current;
+      scrollToRestore.current = null;
+      queueMicrotask(() => viewer.current?.restore(top));
+    }
+  }, [loaded, errors, selected, snapshot, saveScroll]);
   const followVisibleFile = useCallback((snapshotId: string, id: string) => {
     // Restoration and explicit navigation own their scroll positions. Passive
     // selection updates must not call selectFile, which would scroll again.
     if (
       snapshotRef.current?.id !== snapshotId ||
       scrollToRestore.current !== null ||
+      refreshToRestore.current !== null ||
       selectionRef.current === id
     )
       return;
@@ -396,62 +473,82 @@ export default function App() {
     },
     [openRepository],
   );
-  const selectFile = useCallback(
-    (id: string) => {
-      scrollToRestore.current = null;
-      setSelected(id);
-      selectionRef.current = id;
-      setMatchIndex(0);
-      requestFile(id);
-      queueMicrotask(() => viewer.current?.jump(id));
-      const s = snapshotRef.current;
-      if (s)
-        setPreferences((p) => ({
-          ...p,
-          sessions: {
-            ...p.sessions,
-            [s.repository.root]: {
-              comparison: s.comparison,
-              lastChanges: lastChanges.current,
-              selectedPath: s.files.find((f) => f.id === id)?.path ?? null,
-              scrollTop: 0,
-            },
+  const activateFile = useCallback((id: string) => {
+    scrollToRestore.current = null;
+    refreshToRestore.current = null;
+    const changedFile = selectionRef.current !== id;
+    setSelected(id);
+    selectionRef.current = id;
+    if (changedFile) setMatchIndex(0);
+    const s = snapshotRef.current;
+    if (s)
+      setPreferences((p) => ({
+        ...p,
+        sessions: {
+          ...p.sessions,
+          [s.repository.root]: {
+            comparison: s.comparison,
+            lastChanges: lastChanges.current,
+            selectedPath: s.files.find((f) => f.id === id)?.path ?? null,
+            scrollTop: 0,
           },
-        }));
+        },
+      }));
+  }, []);
+  const navigation = useNavigation({
+    snapshot,
+    selected,
+    viewer,
+    loadFile,
+    activateFile,
+    navigationSide,
+    setNavigationSide,
+  });
+  const selectFile = navigation.review;
+  const focusFind = useCallback(() => {
+    document
+      .querySelector<HTMLInputElement>(
+        `input[aria-label="${findFocus.current}"]`,
+      )
+      ?.focus();
+  }, []);
+  const openFind = useCallback(
+    (field: "Find in file" | "Go to line") => {
+      findFocus.current = field;
+      setFindOpen(true);
+      // The field may already be mounted; otherwise the effect focuses it after commit.
+      queueMicrotask(focusFind);
     },
-    [requestFile],
+    [focusFind],
   );
+  useEffect(() => {
+    if (findOpen) focusFind();
+  }, [findOpen, focusFind]);
 
   useEffect(() => {
     const menu = listen<string>("app-menu", ({ payload }) => {
       if (payload === "open") void pickRepository();
-      if (payload === "settings") setSettings(true);
+      if (payload === "settings") setSettings("appearance");
       if (payload === "refresh") refresh();
     });
     const keys = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector("dialog[open]")) return;
+      if (e.key === "Escape" && !e.isComposing) {
+        setFindOpen(false);
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.key.toLowerCase() === "p") {
         e.preventDefault();
         setQuickOpen(true);
-        setQuickFilter("");
       }
       if (e.key.toLowerCase() === "f") {
         e.preventDefault();
-        setFindOpen(true);
-        queueMicrotask(() =>
-          document
-            .querySelector<HTMLInputElement>('[aria-label="Find in file"]')
-            ?.focus(),
-        );
+        openFind("Find in file");
       }
       if (e.key.toLowerCase() === "g") {
         e.preventDefault();
-        setFindOpen(true);
-        queueMicrotask(() =>
-          document
-            .querySelector<HTMLInputElement>('[aria-label="Go to line"]')
-            ?.focus(),
-        );
+        openFind("Go to line");
       }
     };
     window.addEventListener("keydown", keys);
@@ -459,7 +556,7 @@ export default function App() {
       void menu.then((unlisten) => unlisten());
       window.removeEventListener("keydown", keys);
     };
-  }, [pickRepository, refresh]);
+  }, [pickRepository, refresh, openFind]);
 
   const reloadQueue = useCallback(async () => {
     const s = snapshotRef.current;
@@ -504,8 +601,23 @@ export default function App() {
     if (!draft?.body.trim()) return;
     setSaving(true);
     try {
+      let source = { snapshotId: draft.snapshotId, fileId: draft.fileId };
+      if (draft.snapshotId !== s.id) {
+        const entry = s.files.find((file) => file.path === draft.path);
+        if (!entry)
+          throw new Error(
+            "This file is no longer in the current view. Your draft has been kept.",
+          );
+        const { content } = await loadFile(entry.id, true);
+        if (content.fingerprint !== draft.fingerprint)
+          throw new Error(
+            "The file changed since this draft was started. Your draft has been kept; review the file before starting a new comment.",
+          );
+        source = { snapshotId: s.id, fileId: entry.id };
+      }
       await api.comment({
         ...draft,
+        ...source,
         body: draft.body,
         line: draft.line ?? null,
         side: draft.side ?? null,
@@ -518,7 +630,7 @@ export default function App() {
     } finally {
       setSaving(false);
     }
-  }, [drafts, reloadQueue, notify, reportError]);
+  }, [drafts, loadFile, reloadQueue, notify, reportError]);
   const markReviewed = useCallback(
     async (id: string, checked: boolean) => {
       const s = snapshotRef.current;
@@ -544,13 +656,9 @@ export default function App() {
         );
         return;
       }
-      setSelected(file.id);
-      requestFile(file.id);
-      queueMicrotask(() =>
-        viewer.current?.jump(file.id, comment.anchor.line, comment.anchor.side),
-      );
+      void navigation.review(file.id, comment.anchor.line, comment.anchor.side);
     },
-    [notify, requestFile],
+    [notify, navigation.review],
   );
   const copyFeedback = async () => {
     if (!snapshot) return;
@@ -653,24 +761,35 @@ export default function App() {
   const selectedEntry = snapshot?.files.find((f) => f.id === selected);
   const selectedFile = selected ? loaded[selected] : undefined;
   const matches = useMemo(() => {
+    if (navigation.file)
+      return (navigation.file.content ?? "").split("\n").flatMap((line, i) =>
+        textMatches(line, findText).map((match) => ({
+          ...match,
+          line: i + 1,
+          side: navigation.file!.side,
+        })),
+      );
     if (!findText || !selectedFile) return [];
-    const results: { line: number; side: "old" | "new" }[] = [];
+    const results: SourceMatch[] = [];
     for (const side of (snapshot?.comparison.view === "changes"
       ? ["new", "old"]
       : ["new"]) as ("old" | "new")[]) {
       sourceLines(selectedFile, side).forEach((line, i) => {
-        if (line.toLowerCase().includes(findText.toLowerCase()))
-          results.push({ line: i + 1, side });
+        for (const match of textMatches(line, findText))
+          results.push({ ...match, line: i + 1, side });
       });
     }
     return results;
-  }, [findText, selectedFile, snapshot?.comparison.view]);
+  }, [findText, selectedFile, snapshot?.comparison.view, navigation.file]);
   const jumpMatch = (index: number) => {
     if (!selected || !matches.length) return;
-    const i = ((index % matches.length) + matches.length) % matches.length;
+    const i =
+      matchIndex < 0 && index < 0
+        ? matches.length - 1
+        : ((index % matches.length) + matches.length) % matches.length;
     setMatchIndex(i);
     const match = matches[i];
-    viewer.current?.jump(selected, match.line, match.side);
+    navigation.jump(match.line, match.side);
   };
   const totalAdds =
     snapshot?.files.reduce((sum, file) => sum + file.additions, 0) ?? 0;
@@ -690,7 +809,13 @@ export default function App() {
       >
         <header className="titlebar" data-tauri-drag-region>
           <div className="app-wordmark" data-tauri-drag-region>
-            <ScanSearch size={17} />
+            <img
+              src={appIcon}
+              alt=""
+              width={20}
+              height={20}
+              draggable={false}
+            />
             <span>Peer</span>
             <span className="preview-tag">LOCAL</span>
           </div>
@@ -699,20 +824,31 @@ export default function App() {
               className="icon-button"
               title="Settings (⌘ ,)"
               aria-label="Settings"
-              onClick={() => setSettings(true)}
+              onClick={() => setSettings("appearance")}
             >
               <Settings2 size={16} />
             </button>
           </div>
         </header>
         <div className="toolbar">
-          <button className="repository-button" onClick={pickRepository}>
-            <FolderOpen size={17} />
-            <span>{snapshot?.repository.name ?? "Open repository"}</span>
-            <ChevronRight size={13} />
-          </button>
+          <RepositorySwitcher
+            current={snapshot?.repository ?? null}
+            repositories={preferences.recentRepositories}
+            disabled={!ready || busy || saving}
+            onSelect={(path) => void openRepository(path)}
+            onOpen={() => void pickRepository()}
+          />
           {snapshot ? (
             <>
+              <button
+                className="icon-button"
+                aria-label="Go back"
+                title="Go back (Ctrl+-)"
+                disabled={!navigation.historyLength}
+                onClick={() => void navigation.back()}
+              >
+                <ArrowLeft size={16} />
+              </button>
               <div className="view-switch">
                 <button
                   className={
@@ -735,18 +871,26 @@ export default function App() {
                   Changes
                 </button>
               </div>
-              <span className="branch-label">
-                <GitBranch size={14} />
-                {snapshot.repository.branch.startsWith("detached:")
-                  ? `Detached ${snapshot.repository.head?.slice(0, 7)}`
-                  : snapshot.repository.branch}
-              </span>
+              <CommitHistory
+                snapshot={snapshot}
+                disabled={busy || saving}
+                onSelect={(commit) =>
+                  changeComparison({
+                    view: "changes",
+                    mode: "commit",
+                    baseRef: commit.id,
+                    includeUntracked: false,
+                  })
+                }
+              />
               <div className="toolbar-spacer" />
               <button
                 className="icon-button"
                 title="Find in file (⌘ F)"
                 aria-label="Find in file"
-                onClick={() => setFindOpen((v) => !v)}
+                onClick={() =>
+                  findOpen ? setFindOpen(false) : openFind("Find in file")
+                }
               >
                 <Search size={16} />
               </button>
@@ -761,11 +905,24 @@ export default function App() {
               </button>
               <button
                 className={`feedback-toggle ${feedback ? "active" : ""}`}
-                onClick={() => setFeedback((v) => !v)}
+                onClick={() => {
+                  navigation.setResultsVisible(false);
+                  setFeedback((v) => (navigation.resultsVisible ? true : !v));
+                }}
               >
                 <MessageSquare size={14} />
                 Feedback<span className="count">{queue.comments.length}</span>
               </button>
+              {navigation.results && (
+                <button
+                  className="small-button"
+                  onClick={() =>
+                    navigation.setResultsVisible((value) => !value)
+                  }
+                >
+                  References / Definitions
+                </button>
+              )}
             </>
           ) : (
             <span className="toolbar-hint">
@@ -788,9 +945,14 @@ export default function App() {
         )}
         {!snapshot ? (
           <main className="welcome">
-            <div className="welcome-mark">
-              <ScanSearch size={42} strokeWidth={1.4} />
-            </div>
+            <img
+              className="welcome-mark"
+              src={appIcon}
+              alt=""
+              width={76}
+              height={76}
+              draggable={false}
+            />
             <span className="eyebrow">A CLEARER LOOK AT YOUR CODE</span>
             <h1>
               Understand the changes.
@@ -845,7 +1007,15 @@ export default function App() {
             </div>
           </main>
         ) : (
-          <div className={`workspace ${feedback ? "" : "feedback-hidden"}`}>
+          <ResizableWorkspace
+            widths={preferences.sidebarWidths}
+            onChange={(sidebarWidths) =>
+              setPreferences((current) => ({ ...current, sidebarWidths }))
+            }
+            rightLabel={
+              navigation.resultsVisible ? "navigation results" : "feedback"
+            }
+          >
             <FileTree
               files={snapshot.files}
               selected={selected}
@@ -855,7 +1025,18 @@ export default function App() {
             />
             <main className="main-pane">
               <div className="comparison-toolbar">
-                {snapshot.comparison.view === "changes" ? (
+                {navigation.file ? (
+                  <>
+                    <span className="breadcrumb" title={navigation.file.path}>
+                      <Code2 size={14} />
+                      {navigation.file.path}
+                    </span>
+                    <div className="toolbar-spacer" />
+                    <span className="navigation-version">
+                      {navigation.file.label}
+                    </span>
+                  </>
+                ) : snapshot.comparison.view === "changes" ? (
                   <>
                     <select
                       aria-label="Comparison mode"
@@ -865,9 +1046,14 @@ export default function App() {
                         changeComparison({
                           ...snapshot.comparison,
                           mode,
+                          includeUntracked: snapshot.commit
+                            ? defaultComparison.includeUntracked
+                            : snapshot.comparison.includeUntracked,
                           baseRef:
                             mode === "branch"
-                              ? (snapshot.comparison.baseRef ??
+                              ? ((snapshot.comparison.mode === "branch"
+                                  ? snapshot.comparison.baseRef
+                                  : null) ??
                                 (branches.includes("main")
                                   ? "main"
                                   : (branches[0] ?? null)))
@@ -879,6 +1065,11 @@ export default function App() {
                       <option value="unstaged">Unstaged changes</option>
                       <option value="staged">Staged changes</option>
                       <option value="branch">Compare to branch</option>
+                      {snapshot.commit && (
+                        <option value="commit">
+                          Commit {snapshot.commit.shortId}
+                        </option>
+                      )}
                     </select>
                     {snapshot.comparison.mode === "branch" && (
                       <select
@@ -896,22 +1087,36 @@ export default function App() {
                         ))}
                       </select>
                     )}
-                    {snapshot.comparison.mode !== "staged" && (
-                      <label className="untracked-toggle">
-                        <input
-                          type="checkbox"
-                          checked={snapshot.comparison.includeUntracked}
-                          onChange={(e) =>
-                            changeComparison({
-                              ...snapshot.comparison,
-                              includeUntracked: e.target.checked,
-                            })
-                          }
-                        />
-                        Untracked
-                      </label>
-                    )}
+                    {snapshot.comparison.mode !== "staged" &&
+                      snapshot.comparison.mode !== "commit" && (
+                        <label className="untracked-toggle">
+                          <input
+                            type="checkbox"
+                            checked={snapshot.comparison.includeUntracked}
+                            onChange={(e) =>
+                              changeComparison({
+                                ...snapshot.comparison,
+                                includeUntracked: e.target.checked,
+                              })
+                            }
+                          />
+                          Untracked
+                        </label>
+                      )}
                     <div className="toolbar-spacer" />
+                    {preferences.diffLayout === "unified" && (
+                      <select
+                        aria-label="Navigation side for shared lines"
+                        title="Version used by F12 on unchanged lines"
+                        value={navigationSide}
+                        onChange={(event) =>
+                          setNavigationSide(event.target.value as "old" | "new")
+                        }
+                      >
+                        <option value="new">Navigate shared lines: B</option>
+                        <option value="old">Navigate shared lines: A</option>
+                      </select>
+                    )}
                     <span className="diff-summary">
                       <b className="add">+{totalAdds}</b>
                       <b className="remove">−{totalDeletes}</b>
@@ -960,6 +1165,62 @@ export default function App() {
                   <Text size={16} />
                 </button>
               </div>
+              {snapshot.commit && !navigation.file && (
+                <div className="commit-summary">
+                  <div>
+                    <strong>
+                      {snapshot.commit.subject || "Untitled commit"}
+                    </strong>
+                    <span>
+                      {snapshot.commit.author} ·{" "}
+                      {commitDate(snapshot.commit.committedAt)} ·{" "}
+                      {snapshot.commit.parents.length > 1
+                        ? "Compared with first parent"
+                        : snapshot.commit.parents.length
+                          ? "Changes introduced by this commit"
+                          : "Initial commit"}
+                    </span>
+                  </div>
+                  <code title={snapshot.commit.id}>
+                    {snapshot.commit.shortId}
+                  </code>
+                </div>
+              )}
+              {navigation.status && (
+                <div
+                  className={`navigation-status ${navigation.status.code === "preparing" ? "" : "navigation-status-error"}`}
+                  role="status"
+                >
+                  {navigation.status.code === "preparing" && (
+                    <LoaderCircle size={14} className="spin" />
+                  )}
+                  <span>{navigation.status.message}</span>
+                  {navigation.status.code === "missingServer" && (
+                    <button
+                      className="small-button"
+                      onClick={() => setSettings("navigation")}
+                    >
+                      Settings
+                    </button>
+                  )}
+                  {navigation.status.code === "stale" && (
+                    <button className="small-button" onClick={refresh}>
+                      Refresh
+                    </button>
+                  )}
+                  <button
+                    className="icon-button"
+                    aria-label={
+                      navigation.status.code === "preparing"
+                        ? "Cancel navigation"
+                        : "Dismiss navigation status"
+                    }
+                    onClick={navigation.cancel}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               {findOpen && (
                 <form
                   className="find-bar"
@@ -977,20 +1238,34 @@ export default function App() {
                       setFindText(e.target.value);
                       setMatchIndex(-1);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        jumpMatch(matchIndex + (e.shiftKey ? -1 : 1));
+                      }
+                    }}
                   />
                   <span>
                     {matches.length
-                      ? `${Math.max(matchIndex + 1, 0)} / ${matches.length}`
+                      ? `${Math.min(Math.max(matchIndex + 1, 0), matches.length)} / ${matches.length}`
                       : "No matches"}
                   </span>
                   <button
                     type="button"
                     className="small-button"
+                    aria-label="Previous match"
                     onClick={() => jumpMatch(matchIndex - 1)}
                   >
                     ↑
                   </button>
-                  <button className="small-button">↓</button>
+                  <button
+                    type="button"
+                    className="small-button"
+                    aria-label="Next match"
+                    onClick={() => jumpMatch(matchIndex + 1)}
+                  >
+                    ↓
+                  </button>
                   <input
                     className="line-input"
                     aria-label="Go to line"
@@ -1000,11 +1275,16 @@ export default function App() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        if (selected && Number(lineInput) > 0)
-                          viewer.current?.jump(
-                            selected,
+                        if (
+                          selected &&
+                          Number.isInteger(Number(lineInput)) &&
+                          Number(lineInput) > 0
+                        )
+                          navigation.jump(
                             Number(lineInput),
-                            "new",
+                            snapshot.comparison.view === "code"
+                              ? "new"
+                              : navigationSide,
                           );
                       }
                     }}
@@ -1019,10 +1299,24 @@ export default function App() {
                   </button>
                 </form>
               )}
-              {snapshot.files.length ? (
+              {navigation.file && navigation.file.snapshotId === snapshot.id ? (
+                <NavigationSource
+                  ref={viewer}
+                  key={`source:${navigation.file.documentId}:${navigation.mountEpoch}`}
+                  snapshot={snapshot}
+                  file={navigation.file}
+                  preferences={preferences}
+                  theme={theme}
+                  onLoad={navigation.loadSource}
+                  onNavigate={navigation.navigate}
+                  onError={reportError}
+                  findQuery={findOpen ? findText : ""}
+                  findMatch={findOpen ? matches[matchIndex] : undefined}
+                />
+              ) : snapshot.files.length ? (
                 <Viewer
                   ref={viewer}
-                  key={snapshot.queueId}
+                  key={`${snapshot.id}:${navigation.mountEpoch}`}
                   snapshot={snapshot}
                   selected={selected}
                   loaded={loaded}
@@ -1036,6 +1330,12 @@ export default function App() {
                   onScroll={saveScroll}
                   onActiveFileChange={followVisibleFile}
                   onError={reportError}
+                  navigationSide={
+                    snapshot.comparison.view === "code" ? "new" : navigationSide
+                  }
+                  onNavigate={navigation.navigate}
+                  findQuery={findOpen ? findText : ""}
+                  findMatch={findOpen ? matches[matchIndex] : undefined}
                 />
               ) : (
                 <div className="empty-state">
@@ -1075,40 +1375,57 @@ export default function App() {
                 </div>
               )}
             </main>
-            {feedback && (
-              <Feedback
-                key={snapshot.queueId}
-                queue={queue}
-                view={snapshot.comparison.view}
-                draft={drafts[snapshot.queueId]}
-                busy={saving}
-                onDraft={(draft) =>
-                  setDrafts((prev) => ({ ...prev, [snapshot.queueId]: draft }))
+            {navigation.resultsVisible && navigation.results ? (
+              <NavigationResults
+                result={navigation.results}
+                onSelect={(location) =>
+                  void navigation.openLocation(location, navigation.results!)
                 }
-                onSubmit={submitComment}
-                onCopy={copyFeedback}
-                onSave={saveFeedback}
-                onClear={clearFeedback}
-                onDelete={(id) => {
-                  void api
-                    .deleteComments(snapshot.queueId, id)
-                    .then(reloadQueue)
-                    .catch(reportError);
+                onClose={() => navigation.setResultsVisible(false)}
+                onFeedback={() => {
+                  navigation.setResultsVisible(false);
+                  setFeedback(true);
                 }}
-                onEdit={async (id, body) => {
-                  try {
-                    await api.editComment(snapshot.queueId, id, body);
-                    await reloadQueue();
-                  } catch (e) {
-                    reportError(e);
-                    throw e;
-                  }
-                }}
-                onJump={jumpToComment}
-                onClose={() => setFeedback(false)}
               />
+            ) : (
+              feedback && (
+                <Feedback
+                  key={snapshot.queueId}
+                  queue={queue}
+                  view={snapshot.comparison.view}
+                  draft={drafts[snapshot.queueId]}
+                  busy={saving}
+                  onDraft={(draft) =>
+                    setDrafts((prev) => ({
+                      ...prev,
+                      [snapshot.queueId]: draft,
+                    }))
+                  }
+                  onSubmit={submitComment}
+                  onCopy={copyFeedback}
+                  onSave={saveFeedback}
+                  onClear={clearFeedback}
+                  onDelete={(id) => {
+                    void api
+                      .deleteComments(snapshot.queueId, id)
+                      .then(reloadQueue)
+                      .catch(reportError);
+                  }}
+                  onEdit={async (id, body) => {
+                    try {
+                      await api.editComment(snapshot.queueId, id, body);
+                      await reloadQueue();
+                    } catch (e) {
+                      reportError(e);
+                      throw e;
+                    }
+                  }}
+                  onJump={jumpToComment}
+                  onClose={() => setFeedback(false)}
+                />
+              )
             )}
-          </div>
+          </ResizableWorkspace>
         )}
         <footer className="statusbar">
           <span>
@@ -1138,51 +1455,21 @@ export default function App() {
         )}
         {settings && (
           <Settings
+            initialTab={settings}
             preferences={preferences}
             themes={themes}
             onChange={setPreferences}
             onImport={importTheme}
             onRemove={removeTheme}
-            onClose={() => setSettings(false)}
+            onClose={() => setSettings(null)}
           />
         )}
         {quickOpen && (
-          <Modal
-            title="Go to file"
+          <QuickOpen
+            files={snapshot?.files ?? []}
+            onSelect={selectFile}
             onClose={() => setQuickOpen(false)}
-            className="quick-open"
-          >
-            <label className="filter-input">
-              <Search size={16} />
-              <input
-                autoFocus
-                aria-label="Quick open file"
-                placeholder="Type a filename…"
-                value={quickFilter}
-                onChange={(e) => setQuickFilter(e.target.value)}
-              />
-            </label>
-            <div className="quick-results">
-              {snapshot?.files
-                .filter((file) =>
-                  file.path.toLowerCase().includes(quickFilter.toLowerCase()),
-                )
-                .slice(0, 100)
-                .map((file) => (
-                  <button
-                    key={file.id}
-                    onClick={() => {
-                      selectFile(file.id);
-                      setQuickOpen(false);
-                    }}
-                  >
-                    <Code2 size={14} />
-                    <span>{file.path}</span>
-                    <ChevronRight size={13} />
-                  </button>
-                ))}
-            </div>
-          </Modal>
+          />
         )}
         {exportText !== null && (
           <Modal title="Feedback JSON" onClose={() => setExportText(null)}>

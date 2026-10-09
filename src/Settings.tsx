@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   Download,
@@ -11,6 +11,16 @@ import {
 import type { Preferences } from "./types";
 import { themeVariables, type Theme } from "./themes";
 import { Modal } from "./Modal";
+import { NavigationSettings } from "./NavigationSettings";
+
+const tabs = [
+  { id: "appearance", label: "Appearance" },
+  { id: "viewer", label: "Viewer" },
+  { id: "navigation", label: "Code navigation" },
+  { id: "git", label: "Git" },
+] as const;
+export type SettingsTab = (typeof tabs)[number]["id"];
+
 export function Settings({
   preferences,
   themes,
@@ -18,6 +28,7 @@ export function Settings({
   onImport,
   onRemove,
   onClose,
+  initialTab = "appearance",
 }: {
   preferences: Preferences;
   themes: Theme[];
@@ -25,8 +36,20 @@ export function Settings({
   onImport: () => void;
   onRemove: (id: string) => void;
   onClose: () => void;
+  initialTab?: SettingsTab;
 }) {
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const activeTab = useRef<HTMLButtonElement>(null);
+  const id = useId();
   const [filter, setFilter] = useState("");
+  const panel = (name: SettingsTab) => ({
+    id: `${id}-${name}-panel`,
+    role: "tabpanel",
+    "aria-labelledby": `${id}-${name}-tab`,
+    hidden: tab !== name,
+    tabIndex: 0,
+    className: "settings-body",
+  });
   const select = (theme: Theme) =>
     onChange({
       ...preferences,
@@ -37,8 +60,54 @@ export function Settings({
       },
     });
   return (
-    <Modal title="Settings" onClose={onClose} className="settings-modal">
-      <div className="settings-body">
+    <Modal
+      title="Settings"
+      onClose={onClose}
+      className="settings-modal"
+      initialFocus={activeTab}
+    >
+      <div
+        className="settings-tabs"
+        role="tablist"
+        aria-label="Settings categories"
+      >
+        {tabs.map((item, index) => (
+          <button
+            key={item.id}
+            ref={tab === item.id ? activeTab : undefined}
+            id={`${id}-${item.id}-tab`}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            aria-controls={`${id}-${item.id}-panel`}
+            tabIndex={tab === item.id ? 0 : -1}
+            onClick={(event) => {
+              setTab(item.id);
+              event.currentTarget.focus();
+            }}
+            onKeyDown={(event) => {
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % tabs.length
+                  : event.key === "ArrowLeft"
+                    ? (index + tabs.length - 1) % tabs.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? tabs.length - 1
+                        : null;
+              if (next === null) return;
+              event.preventDefault();
+              setTab(tabs[next].id);
+              document.getElementById(`${id}-${tabs[next].id}-tab`)?.focus();
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <section {...panel("appearance")}>
         <div className="section-heading">
           <div>
             <h3>Appearance</h3>
@@ -190,8 +259,14 @@ export function Settings({
           Select a theme to preview it across the app. Import self-contained VS
           Code JSON or JSONC color themes.
         </p>
-        <div className="settings-divider" />
-        <h3>Viewer</h3>
+      </section>
+      <section {...panel("viewer")}>
+        <div className="section-heading">
+          <div>
+            <h3>Viewer</h3>
+            <p>Text and whitespace in Code and Changes.</p>
+          </div>
+        </div>
         <div className="setting-row">
           <label htmlFor="code-font-size">
             Code font size
@@ -245,8 +320,22 @@ export function Settings({
             }
           />
         </label>
-        <div className="settings-divider" />
-        <h3>Git</h3>
+      </section>
+      <section {...panel("navigation")}>
+        <NavigationSettings
+          servers={preferences.languageServers}
+          onChange={(languageServers) =>
+            onChange({ ...preferences, languageServers })
+          }
+        />
+      </section>
+      <section {...panel("git")}>
+        <div className="section-heading">
+          <div>
+            <h3>Git</h3>
+            <p>Choose the Git installation used to read repositories.</p>
+          </div>
+        </div>
         <label className="git-path">
           Executable path
           <input
@@ -265,7 +354,7 @@ export function Settings({
           Leave empty to use your installed Git. Changes take effect on the next
           repository refresh.
         </p>
-      </div>
+      </section>
     </Modal>
   );
 }

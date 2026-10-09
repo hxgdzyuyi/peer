@@ -16,7 +16,15 @@ if (!process.env.PEER_DATA_DIR) {
 export const config = {
   runner: "local",
   specs: [
-    process.env.PEER_MEMORY_TEST ? "./memory.spec.ts" : "./review.spec.ts",
+    ...(process.env.PEER_MEMORY_TEST
+      ? ["./memory.spec.ts"]
+      : [
+          "./review.spec.ts",
+          "./sidebars.spec.ts",
+          "./navigation.spec.ts",
+          "./repositories.spec.ts",
+          "./history.spec.ts",
+        ]),
   ],
   maxInstances: 1,
   capabilities: [{ browserName: "tauri" }],
@@ -45,14 +53,11 @@ export const config = {
   },
   afterTest: async (test, _context, { passed }) => {
     if (!passed) {
+      const failureName = `failure-${test.title.replace(/[^a-z0-9]+/gi, "-")}`;
       await browser.saveScreenshot(resolve("test-results/failure.png"));
-      await browser.saveScreenshot(
-        resolve(
-          `test-results/failure-${test.title.replace(/[^a-z0-9]+/gi, "-")}.png`,
-        ),
-      );
+      await browser.saveScreenshot(resolve(`test-results/${failureName}.png`));
       writeFileSync(
-        "test-results/failure-dom.json",
+        `test-results/${failureName}-dom.json`,
         JSON.stringify(
           await browser.execute(() =>
             Array.from(document.querySelectorAll("diffs-container"))
@@ -60,6 +65,16 @@ export const config = {
               .map((e) => ({
                 html: e.shadowRoot?.innerHTML.slice(0, 20000),
                 attrs: e.outerHTML.slice(0, 500),
+                source: e.shadowRoot
+                  ?.querySelector("[data-code]")
+                  ?.textContent?.slice(0, 2000),
+                path: e
+                  .querySelector("[data-file-path]")
+                  ?.getAttribute("data-file-path"),
+                inlineComments: Array.from(
+                  e.querySelectorAll(".inline-comment"),
+                  (node) => node.textContent,
+                ),
               })),
           ),
           null,
@@ -67,7 +82,7 @@ export const config = {
         ),
       );
       writeFileSync(
-        "test-results/failure-state.json",
+        `test-results/${failureName}-state.json`,
         JSON.stringify(
           await browser.execute(() => ({
             scrolls: Array.from(
@@ -85,6 +100,21 @@ export const config = {
             selected: document
               .querySelector(".tree-file.selected")
               ?.getAttribute("title"),
+            view: document.querySelector(".view-switch button.active")
+              ?.textContent,
+            refreshing: document.querySelector<HTMLButtonElement>(
+              '[aria-label="Refresh repository"]',
+            )?.disabled,
+            feedback: Array.from(
+              document.querySelectorAll(".comment-card"),
+              (node) => node.textContent,
+            ),
+            draft: document.querySelector<HTMLTextAreaElement>(
+              ".comment-composer textarea",
+            )?.value,
+            error: document.querySelector(".error-banner")?.textContent,
+            navigationStatus:
+              document.querySelector(".navigation-status")?.textContent,
           })),
           null,
           2,
