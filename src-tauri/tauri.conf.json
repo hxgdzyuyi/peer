@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": ["app"],
     "shortDescription": "Read your repository. Review with context.",
     "category": "DeveloperTool",
     "resources": ["../licenses/*", "../THIRD_PARTY_NOTICES.md"],

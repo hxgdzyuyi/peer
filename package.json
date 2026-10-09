@@ -12,7 +12,8 @@
     "test:desktop": "wdio run tests/desktop/wdio.conf.ts",
     "tauri": "tauri",
     "desktop": "tauri dev",
-    "bundle": "tauri build --bundles app,dmg",
+    "bundle": "tauri build --target aarch64-apple-darwin --bundles app",
+    "bundle:dmg": "tauri build --target aarch64-apple-darwin --bundles app,dmg",
     "icons": "node scripts/generate-icons.mjs",
     "build:test-app": "node scripts/build-test-app.mjs",
     "format": "prettier --write src scripts tests *.json *.ts *.md && cargo fmt --all"
