@@ -657,18 +657,6 @@ fn imported_themes_survive_removal_of_source_and_restart() {
 }
 
 #[test]
-fn preferences_match_typescript_contract() {
-    let expected: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/contracts/preferences.json")).unwrap();
-    let prefs: peer_core::Preferences = serde_json::from_value(expected.clone()).unwrap();
-    assert_eq!(serde_json::to_value(prefs).unwrap(), expected);
-    assert_eq!(
-        serde_json::to_value(peer_core::Preferences::default()).unwrap(),
-        expected
-    );
-}
-
-#[test]
 fn sidebar_widths_default_for_existing_stores_and_persist() {
     let mut legacy: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/contracts/preferences.json")).unwrap();

@@ -1,6 +1,37 @@
 import { useState } from "react";
 import { defaultPreferences, type LanguageServer } from "./types";
 
+function serverDraft(servers: LanguageServer[]): LanguageServer[] {
+  const ids = new Set(servers.map((server) => server.id));
+  const extensions = new Set(
+    servers.flatMap((server) =>
+      Object.keys(server.languages).map((extension) => extension.toLowerCase()),
+    ),
+  );
+  const missing = defaultPreferences.languageServers.filter(
+    (preset) =>
+      !ids.has(preset.id) &&
+      Object.keys(preset.languages).every(
+        (extension) => !extensions.has(extension.toLowerCase()),
+      ),
+  );
+  return structuredClone([
+    ...servers,
+    ...missing.map((preset) => ({ ...preset, enabled: false })),
+  ]);
+}
+
+function settingsObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function pythonInterpreter(server: LanguageServer): string {
+  const python = settingsObject(settingsObject(server.settings).python);
+  return typeof python.pythonPath === "string" ? python.pythonPath : "";
+}
+
 export function NavigationSettings({
   servers,
   onChange,
@@ -9,7 +40,7 @@ export function NavigationSettings({
   onChange: (servers: LanguageServer[]) => void;
 }) {
   const [draft, setDraft] = useState<LanguageServer[]>(() =>
-    structuredClone(servers),
+    serverDraft(servers),
   );
   const [advanced, setAdvanced] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -19,6 +50,13 @@ export function NavigationSettings({
         value.id === id ? { ...value, ...change } : value,
       ),
     );
+  const updatePythonInterpreter = (server: LanguageServer, path: string) => {
+    const settings = settingsObject(server.settings);
+    const python = { ...settingsObject(settings.python) };
+    if (path) python.pythonPath = path;
+    else delete python.pythonPath;
+    update(server.id, { settings: { ...settings, python } });
+  };
   const save = () => {
     try {
       const value: LanguageServer[] =
@@ -73,7 +111,7 @@ export function NavigationSettings({
         }
       }
       onChange(value);
-      setDraft(value);
+      setDraft(serverDraft(value));
       setAdvanced(null);
       setError("");
     } catch (error) {
@@ -88,6 +126,10 @@ export function NavigationSettings({
           <p>
             F12 goes to definitions. Ctrl+- goes back. Install language servers
             and toolchains locally.
+          </p>
+          <p>
+            Missing presets appear disabled. Enable and save them to add support
+            without resetting your existing servers.
           </p>
         </div>
       </div>
@@ -114,6 +156,27 @@ export function NavigationSettings({
                 }
               />
             </label>
+            {server.id === "python" && (
+              <>
+                <label>
+                  Python interpreter (optional)
+                  <input
+                    aria-label="Python interpreter"
+                    placeholder="Default Python environment"
+                    value={pythonInterpreter(server)}
+                    onChange={(event) =>
+                      updatePythonInterpreter(server, event.target.value)
+                    }
+                  />
+                </label>
+                <small className="muted">
+                  Install Pyright with <code>npm install -g pyright</code>. For
+                  a virtual environment, enter its absolute interpreter path,
+                  such as /absolute/project/.venv/bin/python. Leave empty to use
+                  Pyright's default Python environment.
+                </small>
+              </>
+            )}
             <small className="muted">
               {Object.keys(server.languages)
                 .map((extension) => `.${extension}`)

@@ -75,17 +75,20 @@ Destinations open as complete, read-only source files, including files that are 
 
 **Ctrl+-** or the toolbar Back button restores the previous file, source selection, scroll position, and diff expansion state. History includes file selection, quick-open, search results, line jumps, comment jumps, and symbol jumps. It holds up to 100 entries for the current comparison and resets on refresh, comparison changes, or opening another repository. Source pages retain the original feedback queue and drafts; comments and Reviewed actions remain in the review view. Find and Go to Line operate on the displayed source page.
 
-Configure servers in **Settings → Code navigation**. Go, TypeScript/JavaScript, and Rust have presets. Servers and their toolchains must be installed locally; Peer does not install them or fetch dependencies. Suggested setup for the tested presets:
+Configure servers in **Settings → Code navigation**. Go, TypeScript/JavaScript, Python, and Rust have presets. Servers and their toolchains must be installed locally; Peer does not install them or fetch dependencies. Suggested setup for the tested presets:
 
 ```sh
 go install golang.org/x/tools/gopls@latest
 npm install -g typescript-language-server typescript@5.9.3
+npm install -g pyright
 rustup component add rust-analyzer rust-src
 ```
 
 The TypeScript preset uses a tsserver-based TypeScript installation (tested with 5.9.3). TypeScript 7's native compiler does not supply `tsserver.js`; use a compatible installation or configure another LSP server. `initializationOptions.tsserver.path` can select a particular `tsserver.js`. The preset disables the separate syntax server so cross-file definitions use semantic analysis from the first query.
 
-Use an absolute executable path if the packaged application cannot find your server on PATH. **Advanced / custom servers** edits the JSON array of server definitions: `id`, `name`, `enabled`, `languages` (extensions without dots mapped to LSP language IDs), `executable`, `args`, `rootMarkers`, `env`, `initializationOptions`, and `settings`. Only one enabled server may claim an extension. Arguments are passed directly without a shell. Root markers are checked in their configured order, from the source's directory up to the snapshot root. Save applies the configuration; older saved preferences receive the default presets automatically.
+The Python preset uses [Pyright](https://github.com/microsoft/pyright) (`pyright-langserver --stdio`, tested with 1.1.414) for `.py` and `.pyi` files. It supports definitions and references, recognizes `pyrightconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, and `Pipfile` project roots, and enables automatic `src` import paths. Install Python locally as well. Configure the server executable and optional **Python interpreter** directly under **Settings → Code navigation → Python (Pyright)**, then save. Ignored virtual environments are not copied into snapshots; to resolve their installed packages, enter the absolute interpreter path, for example `/absolute/project/.venv/bin/python`. Leaving the interpreter empty uses Pyright's default Python environment. This field updates `settings.python.pythonPath` without replacing other advanced settings. Project configuration and relative source imports use the selected snapshot.
+
+Use an absolute executable path if the packaged application cannot find your server on PATH. **Advanced / custom servers** edits the JSON array of server definitions: `id`, `name`, `enabled`, `languages` (extensions without dots mapped to LSP language IDs), `executable`, `args`, `rootMarkers`, `env`, `initializationOptions`, and `settings`. Only one enabled server may claim an extension. Arguments are passed directly without a shell. Root markers are checked in their configured order, from the source's directory up to the snapshot root. Save applies the configuration. Saved preferences without a server configuration receive the defaults automatically. For existing server lists, missing presets appear disabled in the tab: enable the desired preset and choose **Save navigation settings**, without resetting other servers. Existing configurations and disabled states are preserved; presets are not duplicated when a saved server already uses their ID or handles any of their extensions. **Restore presets** remains an explicit reset of the entire list, including customizations.
 
 Analysis starts only when requested. Peer copies the chosen version into an isolated temporary workspace with its project files and configuration. It checks working-file stamps before and after copying; source changes during preparation require Refresh. Once prepared, navigation uses that frozen source until refresh. Up to four language-server sessions are retained, with a five-minute idle timeout and at most 32 open documents per session. Temporary workspaces are removed when their navigation context is released or the app exits.
 
@@ -122,8 +125,9 @@ See [the validation record](docs/VALIDATION.md) for native test results, benchma
 ```sh
 npm test
 cargo test -p peer-core --locked
-# Optional real-server smoke test, after installing all three server presets:
+# Optional real-server smoke tests, after installing their server presets:
 cargo test -p peer-core --test navigation real_language_servers -- --ignored
+cargo test -p peer-core --test navigation real_python_server -- --ignored
 npm run build:test-app
 npm run test:desktop
 # macOS memory workload (isolated app; includes compressed WebKit memory)

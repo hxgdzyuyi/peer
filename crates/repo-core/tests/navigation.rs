@@ -507,6 +507,84 @@ async fn real_language_servers_resolve_scopes_imports_methods_and_references() {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires pyright-langserver and Python"]
+async fn real_python_server_resolves_snapshot_imports_stubs_methods_and_references() {
+    let (repo, _store, app) = fixture();
+    let project = repo.path().join("python");
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("pyproject.toml"), "[tool.pyright]\n").unwrap();
+    let caller = "from defs import answer, answer as alias, Thing\nouter = 0\nvalue = answer() + alias()\ndef local():\n    outer = 2; return outer\nThing().method()\n";
+    let old = "def answer():\n    return 'old'\n\nclass Thing:\n    def method(self):\n        return answer()\n";
+    let new = old.replace("'old'", "'new'");
+    fs::write(project.join("src/call.py"), caller).unwrap();
+    fs::write(project.join("src/defs.py"), old).unwrap();
+    fs::write(
+        project.join("src/contract.pyi"),
+        "from defs import Thing\n\ndef build() -> Thing: ...\n",
+    )
+    .unwrap();
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-m", "Python navigation"]);
+    fs::write(project.join("src/defs.py"), &new).unwrap();
+    let mut preferences = app.store.read().unwrap().preferences;
+    let mut server = default_servers()
+        .into_iter()
+        .find(|server| server.id == "python")
+        .unwrap();
+    if let Ok(executable) = std::env::var("PEER_PYTHON_SERVER") {
+        server.executable = executable;
+    }
+    preferences.language_servers = vec![server];
+    app.save_preferences(preferences).unwrap();
+    let snapshot = app
+        .open_repository(repo.path().to_str().unwrap(), Some(Comparison::default()))
+        .await
+        .unwrap();
+    for (side, expected) in [("old", old), ("new", new.as_str())] {
+        let definition = app
+            .navigate_symbol(request(&snapshot, side, "python/src/call.py", 2, 20))
+            .await
+            .unwrap();
+        assert_eq!(definition.kind, "definitions");
+        assert_eq!(definition.locations[0].path, "python/src/defs.py");
+        assert_eq!(definition.locations[0].range.start.line, 0);
+        assert_eq!(source(&app, &definition).await, expected);
+
+        let mut reference_request = request(&snapshot, side, "python/src/defs.py", 0, 0);
+        reference_request.position = definition.locations[0].range.start;
+        let references = app.navigate_symbol(reference_request).await.unwrap();
+        assert_eq!(references.kind, "references");
+        assert!(
+            references.locations.iter().any(|location| {
+                location.path == "python/src/call.py"
+                    && location.range.start.line == 2
+                    && location.range.start.character == 8
+            }),
+            "{side}: {references:?}"
+        );
+    }
+    let method = app
+        .navigate_symbol(request(&snapshot, "new", "python/src/call.py", 5, 9))
+        .await
+        .unwrap();
+    assert_eq!(method.locations[0].path, "python/src/defs.py");
+    assert_eq!(method.locations[0].range.start.line, 4);
+    let shadow = app
+        .navigate_symbol(request(&snapshot, "new", "python/src/call.py", 4, 23))
+        .await
+        .unwrap();
+    assert_eq!(shadow.locations[0].path, "python/src/call.py");
+    assert_eq!(shadow.locations[0].range.start.line, 4);
+    assert_eq!(shadow.locations[0].range.start.character, 4);
+    let stub = app
+        .navigate_symbol(request(&snapshot, "new", "python/src/contract.pyi", 2, 16))
+        .await
+        .unwrap();
+    assert_eq!(stub.locations[0].path, "python/src/defs.py");
+    assert_eq!(stub.locations[0].range.start.line, 3);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn package_links_use_snapshot_source_and_refresh_releases_workspaces() {
