@@ -669,6 +669,44 @@ fn preferences_match_typescript_contract() {
 }
 
 #[test]
+fn sidebar_widths_default_for_existing_stores_and_persist() {
+    let mut legacy: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/contracts/preferences.json")).unwrap();
+    legacy.as_object_mut().unwrap().remove("sidebarWidths");
+    let store = tempfile::tempdir().unwrap();
+    fs::write(
+        store.path().join("state.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "preferences": legacy, "queues": {}, "themes": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    let mut prefs = app.store.read().unwrap().preferences;
+    assert_eq!(prefs.sidebar_widths.files, 244);
+    assert_eq!(prefs.sidebar_widths.feedback, 310);
+    prefs.sidebar_widths.files = 380;
+    prefs.sidebar_widths.feedback = 420;
+    app.save_preferences(prefs.clone()).unwrap();
+    for (files, feedback) in [(0, 420), (601, 420), (380, 259), (380, u32::MAX)] {
+        let mut invalid = prefs.clone();
+        invalid.sidebar_widths.files = files;
+        invalid.sidebar_widths.feedback = feedback;
+        assert!(app.save_preferences(invalid).is_err());
+    }
+    drop(app);
+    let restored = Inspector::new(store.path()).unwrap();
+    let widths = restored.store.read().unwrap().preferences.sidebar_widths;
+    assert_eq!((widths.files, widths.feedback), (380, 420));
+    let partial: peer_core::Preferences = serde_json::from_value(serde_json::json!({
+        "sidebarWidths": { "files": 360 }
+    }))
+    .unwrap();
+    assert_eq!(partial.sidebar_widths.feedback, 310);
+}
+
+#[test]
 fn font_size_defaults_for_existing_stores_and_persists() {
     let mut legacy: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/contracts/preferences.json")).unwrap();

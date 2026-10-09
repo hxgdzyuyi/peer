@@ -22,15 +22,15 @@ impl Default for Comparison {
 impl Comparison {
     pub fn validate(&self) -> Result<(), String> {
         if !["code", "changes"].contains(&self.view.as_str())
-            || !["all", "staged", "unstaged", "branch"].contains(&self.mode.as_str())
+            || !["all", "staged", "unstaged", "branch", "commit"].contains(&self.mode.as_str())
         {
             return Err("Unknown comparison".into());
         }
-        if self.mode == "branch"
+        if ["branch", "commit"].contains(&self.mode.as_str())
             && self.view == "changes"
             && self.base_ref.as_deref().unwrap_or("").is_empty()
         {
-            return Err("Select a branch to compare".into());
+            return Err("Select a branch or commit to compare".into());
         }
         Ok(())
     }
@@ -44,6 +44,24 @@ pub struct Repository {
     pub name: String,
     pub branch: String,
     pub head: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub id: String,
+    pub short_id: String,
+    pub subject: String,
+    pub author: String,
+    pub committed_at: String,
+    pub parents: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitPage {
+    pub commits: Vec<Commit>,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,6 +86,8 @@ pub struct Snapshot {
     pub comparison: Comparison,
     pub queue_id: String,
     pub base_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<Commit>,
     pub files: Vec<FileEntry>,
 }
 
@@ -173,7 +193,23 @@ pub struct Session {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+pub struct SidebarWidths {
+    pub files: u32,
+    pub feedback: u32,
+}
+impl Default for SidebarWidths {
+    fn default() -> Self {
+        Self {
+            files: 244,
+            feedback: 310,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
+    pub sidebar_widths: SidebarWidths,
     pub appearance: Appearance,
     pub recent_repositories: Vec<String>,
     pub last_repository: Option<String>,
@@ -183,10 +219,12 @@ pub struct Preferences {
     pub code_font_size: u32,
     pub diff_layout: String,
     pub git_executable: Option<String>,
+    pub language_servers: Vec<crate::navigation::LanguageServer>,
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            sidebar_widths: SidebarWidths::default(),
             appearance: Appearance::default(),
             recent_repositories: vec![],
             last_repository: None,
@@ -196,6 +234,7 @@ impl Default for Preferences {
             code_font_size: 12,
             diff_layout: "unified".into(),
             git_executable: None,
+            language_servers: crate::navigation::default_servers(),
         }
     }
 }

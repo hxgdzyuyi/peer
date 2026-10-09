@@ -14,12 +14,14 @@ use tokio::sync::RwLock;
 pub struct Inspector {
     pub store: Store,
     snapshots: RwLock<BTreeMap<String, Arc<RepositorySnapshot>>>,
+    navigation: crate::navigation::NavigationService,
 }
 impl Inspector {
     pub fn new(directory: impl Into<PathBuf>) -> Result<Self, String> {
         Ok(Self {
             store: Store::new(directory)?,
             snapshots: RwLock::new(BTreeMap::new()),
+            navigation: Default::default(),
         })
     }
     async fn snapshot(&self, id: &str) -> Result<Arc<RepositorySnapshot>, String> {
@@ -30,7 +32,17 @@ impl Inspector {
             .cloned()
             .ok_or("Snapshot expired. Refresh the repository.".into())
     }
+    /// Retire child processes and temporary analysis sources before application exit.
+    pub async fn shutdown_navigation(&self) {
+        self.navigation.invalidate().await;
+    }
     pub fn save_preferences(&self, preferences: Preferences) -> Result<(), String> {
+        crate::navigation::validate_servers(&preferences.language_servers)?;
+        if !(180..=600).contains(&preferences.sidebar_widths.files)
+            || !(260..=640).contains(&preferences.sidebar_widths.feedback)
+        {
+            return Err("Invalid sidebar widths".into());
+        }
         if !(1..=16).contains(&preferences.tab_width)
             || !(10..=32).contains(&preferences.code_font_size)
             || !["light", "dark", "system"].contains(&preferences.appearance.mode.as_str())
@@ -107,6 +119,8 @@ impl Inspector {
             snapshots.clear();
         }
         snapshots.insert(result.id.clone(), Arc::new(snapshot));
+        drop(snapshots);
+        self.navigation.activate(&result.id).await;
         Ok(result)
     }
     async fn reconcile(&self, snapshot: &RepositorySnapshot) -> Result<(), String> {
@@ -173,6 +187,29 @@ impl Inspector {
         )
         .await
     }
+    pub async fn navigate_symbol(
+        &self,
+        request: crate::navigation::NavigationRequest,
+    ) -> Result<crate::navigation::NavigationResult, crate::navigation::NavigationError> {
+        let snapshot = self.snapshot(&request.snapshot_id).await?;
+        let servers = self.store.read()?.preferences.language_servers;
+        self.navigation.query(snapshot, &servers, request).await
+    }
+    pub async fn read_navigation_file(
+        &self,
+        snapshot_id: &str,
+        side: &str,
+        document_id: &str,
+        force: bool,
+    ) -> Result<crate::navigation::NavigationFile, crate::navigation::NavigationError> {
+        let snapshot = self.snapshot(snapshot_id).await?;
+        self.navigation
+            .read(snapshot, side, document_id, force)
+            .await
+    }
+    pub fn cancel_navigation(&self, request_id: &str) {
+        self.navigation.cancel(request_id);
+    }
     pub async fn branches(&self, snapshot_id: &str) -> Result<Vec<String>, String> {
         let snapshot = self.snapshot(snapshot_id).await?;
         let bytes = repository::git(
@@ -191,6 +228,30 @@ impl Inspector {
             .filter(|s| !s.ends_with("/HEAD"))
             .map(str::to_string)
             .collect())
+    }
+    pub async fn commits(
+        &self,
+        snapshot_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<CommitPage, String> {
+        let snapshot = self.snapshot(snapshot_id).await?;
+        match &snapshot.data.repository.head {
+            Some(head) => {
+                repository::commits(
+                    &snapshot.git,
+                    Path::new(&snapshot.data.repository.root),
+                    head,
+                    offset,
+                    limit,
+                )
+                .await
+            }
+            None => Ok(CommitPage {
+                commits: vec![],
+                has_more: false,
+            }),
+        }
     }
     pub async fn queue(&self, snapshot_id: &str) -> Result<ReviewQueue, String> {
         let snapshot = self.snapshot(snapshot_id).await?;
@@ -217,7 +278,12 @@ impl Inspector {
             snapshot_id: input.snapshot_id,
             fingerprint: content.fingerprint,
             base_commit: snapshot.data.base_commit.clone(),
-            head_commit: snapshot.data.repository.head.clone(),
+            head_commit: snapshot
+                .data
+                .commit
+                .as_ref()
+                .map(|c| c.id.clone())
+                .or_else(|| snapshot.data.repository.head.clone()),
             side: None,
             line: None,
             line_text: None,

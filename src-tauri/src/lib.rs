@@ -1,5 +1,29 @@
+use peer_core::navigation::{NavigationError, NavigationFile, NavigationRequest, NavigationResult};
 use peer_core::{types::*, Inspector};
 use tauri::{Emitter, Manager, State};
+
+#[tauri::command]
+async fn navigate_symbol(
+    core: State<'_, Inspector>,
+    request: NavigationRequest,
+) -> Result<NavigationResult, NavigationError> {
+    core.navigate_symbol(request).await
+}
+#[tauri::command]
+async fn read_navigation_file(
+    core: State<'_, Inspector>,
+    snapshot_id: String,
+    side: String,
+    document_id: String,
+    force: bool,
+) -> Result<NavigationFile, NavigationError> {
+    core.read_navigation_file(&snapshot_id, &side, &document_id, force)
+        .await
+}
+#[tauri::command]
+fn cancel_navigation(core: State<'_, Inspector>, request_id: String) {
+    core.cancel_navigation(&request_id);
+}
 
 #[tauri::command]
 async fn bootstrap(core: State<'_, Inspector>) -> Result<serde_json::Value, String> {
@@ -36,6 +60,15 @@ async fn list_branches(
     snapshot_id: String,
 ) -> Result<Vec<String>, String> {
     core.branches(&snapshot_id).await
+}
+#[tauri::command]
+async fn list_commits(
+    core: State<'_, Inspector>,
+    snapshot_id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<CommitPage, String> {
+    core.commits(&snapshot_id, offset, limit).await
 }
 #[tauri::command]
 async fn get_queue(core: State<'_, Inspector>, snapshot_id: String) -> Result<ReviewQueue, String> {
@@ -149,10 +182,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            navigate_symbol,
+            read_navigation_file,
+            cancel_navigation,
             save_preferences,
             open_repository,
             read_file,
             list_branches,
+            list_commits,
             get_queue,
             add_comment,
             update_comment,
@@ -163,6 +200,11 @@ pub fn run() {
             import_theme,
             remove_theme
         ])
-        .run(tauri::generate_context!())
-        .expect("Unable to start Peer");
+        .build(tauri::generate_context!())
+        .expect("Unable to start Peer")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                tauri::async_runtime::block_on(app.state::<Inspector>().shutdown_navigation());
+            }
+        });
 }

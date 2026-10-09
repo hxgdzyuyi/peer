@@ -1,4 +1,93 @@
 {
+  "sidebarWidths": { "files": 244, "feedback": 310 },
+  "languageServers": [
+    {
+      "id": "go",
+      "name": "Go (gopls)",
+      "enabled": true,
+      "languages": {
+        "go": "go"
+      },
+      "executable": "gopls",
+      "args": [],
+      "rootMarkers": ["go.work", "go.mod"],
+      "env": {
+        "GOPROXY": "off",
+        "GOTOOLCHAIN": "local",
+        "GOFLAGS": "-mod=readonly"
+      },
+      "initializationOptions": {},
+      "settings": {
+        "gopls": {
+          "staticcheck": false
+        }
+      }
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript / JavaScript",
+      "enabled": true,
+      "languages": {
+        "ts": "typescript",
+        "tsx": "typescriptreact",
+        "mts": "typescript",
+        "cts": "typescript",
+        "js": "javascript",
+        "jsx": "javascriptreact",
+        "mjs": "javascript",
+        "cjs": "javascript"
+      },
+      "executable": "typescript-language-server",
+      "args": ["--stdio"],
+      "rootMarkers": ["package.json", "tsconfig.json", "jsconfig.json"],
+      "env": {},
+      "initializationOptions": {
+        "disableAutomaticTypingAcquisition": true,
+        "tsserver": {
+          "useSyntaxServer": "never"
+        }
+      },
+      "settings": {}
+    },
+    {
+      "id": "rust",
+      "name": "Rust (rust-analyzer)",
+      "enabled": true,
+      "languages": {
+        "rs": "rust"
+      },
+      "executable": "rust-analyzer",
+      "args": [],
+      "rootMarkers": ["Cargo.toml", "rust-project.json"],
+      "env": {
+        "CARGO_NET_OFFLINE": "true"
+      },
+      "initializationOptions": {
+        "cargo": {
+          "buildScripts": {
+            "enable": false
+          }
+        },
+        "procMacro": {
+          "enable": false
+        },
+        "checkOnSave": false
+      },
+      "settings": {
+        "rust-analyzer": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        }
+      }
+    }
+  ],
   "appearance": {
     "mode": "system",
     "lightTheme": "github-light",
@@ -9,7 +98,7 @@
   "sessions": {},
   "tabWidth": 4,
   "showWhitespace": false,
+  "codeFontSize": 12,
   "diffLayout": "unified",
-  "gitExecutable": null,
-  "codeFontSize": 12
+  "gitExecutable": null
 }

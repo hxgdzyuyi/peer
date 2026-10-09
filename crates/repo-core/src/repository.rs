@@ -33,6 +33,7 @@ pub struct RepositorySnapshot {
     pub records: BTreeMap<String, Record>,
     pub signature: String,
     pub git: String,
+    pub navigation: BTreeMap<String, crate::navigation::Inventory>,
 }
 
 pub fn discover_git(override_path: Option<&str>) -> String {
@@ -87,6 +88,58 @@ async fn text(g: &str, root: &Path, args: &[&str]) -> Result<String, String> {
     Ok(utf8(&git(g, root, args).await?)?
         .trim_end_matches(['\r', '\n'])
         .to_string())
+}
+
+pub async fn commits(
+    g: &str,
+    root: &Path,
+    head: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<CommitPage, String> {
+    let limit = limit.clamp(1, 100) as usize;
+    let bytes = git(
+        g,
+        root,
+        &[
+            "log",
+            "--topo-order",
+            "-z",
+            "--no-show-signature",
+            "--format=%H%x00%h%x00%s%x00%an%x00%cI%x00%P",
+            &format!("--skip={offset}"),
+            &format!("--max-count={}", limit + 1),
+            head,
+            "--",
+        ],
+    )
+    .await?;
+    let mut fields: Vec<_> = bytes.split(|b| *b == 0).collect();
+    if fields.last() == Some(&&b""[..]) {
+        fields.pop();
+    }
+    if fields.len() % 6 != 0 {
+        return Err("Invalid Git commit record".into());
+    }
+    let mut commits = fields
+        .chunks_exact(6)
+        .map(|row| {
+            Ok(Commit {
+                id: utf8(row[0])?,
+                short_id: utf8(row[1])?,
+                subject: utf8(row[2])?,
+                author: utf8(row[3])?,
+                committed_at: utf8(row[4])?,
+                parents: utf8(row[5])?
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let has_more = commits.len() > limit;
+    commits.truncate(limit);
+    Ok(CommitPage { commits, has_more })
 }
 
 pub fn safe_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
@@ -192,7 +245,43 @@ pub async fn create_snapshot(
         branch,
         head: head.clone(),
     };
-    let mut base = head.clone();
+    let commit = if comparison.mode == "commit" {
+        let reference = format!(
+            "{}^{{commit}}",
+            comparison.base_ref.as_deref().unwrap_or("")
+        );
+        let oid = text(
+            &g,
+            &root,
+            &["rev-parse", "--verify", "--end-of-options", &reference],
+        )
+        .await?;
+        let mut commit = commits(&g, &root, &oid, 0, 1)
+            .await?
+            .commits
+            .into_iter()
+            .next()
+            .ok_or("Commit not found")?;
+        // Git log hides parents at shallow boundaries. Read the actual header
+        // so a truncated history never turns a normal commit into a root diff.
+        let object = git(&g, &root, &["cat-file", "commit", &oid]).await?;
+        commit.parents = object
+            .split(|b| *b == b'\n')
+            .take_while(|line| !line.is_empty())
+            .filter_map(|line| line.strip_prefix(b"parent "))
+            .map(utf8)
+            .collect::<Result<_, _>>()?;
+        comparison.base_ref = Some(commit.id.clone());
+        comparison.include_untracked = false;
+        Some(commit)
+    } else {
+        None
+    };
+    let mut base = if let Some(commit) = &commit {
+        commit.parents.first().cloned()
+    } else {
+        head.clone()
+    };
     if comparison.mode == "branch" {
         let reference = format!(
             "{}^{{commit}}",
@@ -218,25 +307,37 @@ pub async fn create_snapshot(
             .await?,
         );
     }
-    let inventory = git(
-        &g,
-        &root,
-        &[
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-        ],
-    )
-    .await?;
-    let tracked_bytes = git(&g, &root, &["ls-files", "-z", "--cached"]).await?;
+    let inventory = if commit.is_some() {
+        vec![]
+    } else {
+        git(
+            &g,
+            &root,
+            &[
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+        )
+        .await?
+    };
+    let tracked_bytes = if commit.is_some() {
+        vec![]
+    } else {
+        git(&g, &root, &["ls-files", "-z", "--cached"]).await?
+    };
     let tracked: BTreeSet<String> = tracked_bytes
         .split(|b| *b == 0)
         .filter(|b| !b.is_empty())
         .map(utf8)
         .collect::<Result<_, _>>()?;
-    let unmerged = git(&g, &root, &["ls-files", "--unmerged", "-z"]).await?;
+    let unmerged = if commit.is_some() {
+        vec![]
+    } else {
+        git(&g, &root, &["ls-files", "--unmerged", "-z"]).await?
+    };
     let conflicts: BTreeSet<String> = unmerged
         .split(|b| *b == 0)
         .filter_map(|row| {
@@ -250,10 +351,18 @@ pub async fn create_snapshot(
         .filter(|b| !b.is_empty())
         .map(utf8)
         .collect::<Result<_, _>>()?;
-    let index_metadata =
-        parse_object_metadata(&git(&g, &root, &["ls-files", "--stage", "-z"]).await?)?;
+    let index_metadata = if let Some(commit) = &commit {
+        parse_object_metadata(&git(&g, &root, &["ls-tree", "-r", "-z", &commit.id]).await?)?
+    } else {
+        parse_object_metadata(&git(&g, &root, &["ls-files", "--stage", "-z"]).await?)?
+    };
     let base_metadata = if let Some(base) = &base {
-        parse_object_metadata(&git(&g, &root, &["ls-tree", "-r", "-z", base]).await?)?
+        let tree = git(&g, &root, &["ls-tree", "-r", "-z", base]).await.map_err(|error| {
+            if commit.is_some() {
+                format!("Cannot read this commit's parent. Its history may be missing locally. {error}")
+            } else { error }
+        })?;
+        parse_object_metadata(&tree)?
     } else {
         BTreeMap::new()
     };
@@ -285,6 +394,17 @@ pub async fn create_snapshot(
         }
     } else {
         let mut args = vec!["diff", "--no-ext-diff", "--no-textconv", "--find-renames"];
+        if commit.is_some() && base.is_none() {
+            args = vec![
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "-r",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--find-renames",
+            ];
+        }
         if comparison.mode == "staged" {
             args.push("--cached");
         }
@@ -292,6 +412,9 @@ pub async fn create_snapshot(
             if let Some(base) = &base {
                 args.push(base);
             }
+        }
+        if let Some(commit) = &commit {
+            args.push(&commit.id);
         }
         let mut names_args = args.clone();
         names_args.extend(["--name-status", "-z", "--"]);
@@ -301,7 +424,7 @@ pub async fn create_snapshot(
             tokio::try_join!(git(&g, &root, &names_args), git(&g, &root, &stats_args))?;
         changes = parse_names(&names)?;
         stats = parse_stats(&numbers)?;
-        if comparison.include_untracked && comparison.mode != "staged" {
+        if comparison.include_untracked && comparison.mode != "staged" && commit.is_none() {
             let existing: BTreeSet<String> = changes.iter().map(|c| c.0.clone()).collect();
             for path in all.difference(&tracked) {
                 if !existing.contains(path) {
@@ -317,8 +440,16 @@ pub async fn create_snapshot(
         } else {
             status
         };
-        let absolute = safe_path(&root, &path)?;
-        let metadata = fs::symlink_metadata(&absolute).ok();
+        let absolute = if commit.is_some() {
+            root.join(&path)
+        } else {
+            safe_path(&root, &path)?
+        };
+        let metadata = if commit.is_some() {
+            None
+        } else {
+            fs::symlink_metadata(&absolute).ok()
+        };
         let previous_path = old_path.as_deref().unwrap_or(&path);
         let old_info = if comparison.mode == "unstaged" {
             index_metadata.get(previous_path)
@@ -337,6 +468,7 @@ pub async fn create_snapshot(
             .as_ref()
             .is_some_and(|m| m.file_type().is_symlink())
             || old_info.is_some_and(|i| i.starts_with("120000"))
+            || new_info.is_some_and(|i| i.starts_with("120000"))
         {
             "symlink"
         } else {
@@ -389,6 +521,8 @@ pub async fn create_snapshot(
         };
         let new = if status == "deleted" {
             Source::Empty
+        } else if let Some(commit) = &commit {
+            Source::Git(format!("{}:{path}", commit.id))
         } else if comparison.mode == "staged" && comparison.view != "code" && kind != "conflict" {
             Source::Git(format!(":{path}"))
         } else {
@@ -414,7 +548,7 @@ pub async fn create_snapshot(
         }
         let new_mode = if status == "deleted" {
             "absent"
-        } else if comparison.mode == "staged" {
+        } else if comparison.mode == "staged" || commit.is_some() {
             new_info
                 .and_then(|v| v.split_whitespace().next())
                 .unwrap_or("absent")
@@ -423,8 +557,9 @@ pub async fn create_snapshot(
         };
         let details = if kind == "submodule" {
             format!(
-                "Baseline: {}\nIndex: {}",
+                "Baseline: {}\n{}: {}",
                 old_info.map(String::as_str).unwrap_or("absent"),
+                if commit.is_some() { "Commit" } else { "Index" },
                 new_info.map(String::as_str).unwrap_or("absent")
             )
         } else if comparison.view == "code" {
@@ -444,11 +579,22 @@ pub async fn create_snapshot(
                 entry,
                 old,
                 new,
-                stamp: stamp(&root, &path)?,
+                stamp: if commit.is_some() {
+                    String::new()
+                } else {
+                    stamp(&root, &path)?
+                },
                 metadata: details,
             },
         );
     }
+    let navigation = crate::navigation::capture_inventories(
+        &root,
+        &comparison,
+        &all,
+        &base_metadata,
+        &index_metadata,
+    )?;
     if signature_before != signature(&g, &root).await? {
         return Err(STALE.into());
     }
@@ -470,11 +616,13 @@ pub async fn create_snapshot(
             comparison,
             queue_id,
             base_commit: base,
+            commit,
             files,
         },
         records,
         signature: signature_before,
         git: g,
+        navigation,
     })
 }
 
@@ -586,6 +734,20 @@ async fn read_source(
     }
 }
 
+async fn ensure_current(snapshot: &RepositorySnapshot, record: &Record) -> Result<(), String> {
+    // Commit comparisons read immutable Git objects, so edits, staging and
+    // branch switches cannot make their contents stale.
+    if snapshot.data.commit.is_none() {
+        let root = Path::new(&snapshot.data.repository.root);
+        if snapshot.signature != signature(&snapshot.git, root).await?
+            || record.stamp != stamp(root, &record.entry.path)?
+        {
+            return Err(STALE.into());
+        }
+    }
+    Ok(())
+}
+
 pub async fn read_content(
     snapshot: &RepositorySnapshot,
     id: &str,
@@ -597,11 +759,7 @@ pub async fn read_content(
         .get(id)
         .ok_or("File is not in this snapshot")?;
     let root = Path::new(&snapshot.data.repository.root);
-    if snapshot.signature != signature(&snapshot.git, root).await?
-        || record.stamp != stamp(root, &record.entry.path)?
-    {
-        return Err(STALE.into());
-    }
+    ensure_current(snapshot, record).await?;
     let mut content = FileContent {
         snapshot_id: snapshot.data.id.clone(),
         file_id: id.into(),
@@ -625,6 +783,8 @@ pub async fn read_content(
                 &["ls-files", "--unmerged", "-z", "--", &content.path],
             )
             .await?
+        } else if snapshot.data.commit.is_some() {
+            vec![]
         } else {
             let mut args = vec![
                 "diff",
@@ -649,11 +809,7 @@ pub async fn read_content(
         ));
         content.fingerprint =
             hash(format!("{}:{}:{}", content.kind, record.stamp, content.metadata).as_bytes());
-        if snapshot.signature != signature(&snapshot.git, root).await?
-            || record.stamp != stamp(root, &content.path)?
-        {
-            return Err(STALE.into());
-        }
+        ensure_current(snapshot, record).await?;
         return Ok(content);
     }
     let (old_size, new_size) = tokio::try_join!(
@@ -677,11 +833,7 @@ pub async fn read_content(
         read_source(snapshot, &record.old),
         read_source(snapshot, &record.new)
     )?;
-    if snapshot.signature != signature(&snapshot.git, root).await?
-        || record.stamp != stamp(root, &content.path)?
-    {
-        return Err(STALE.into());
-    }
+    ensure_current(snapshot, record).await?;
     content.fingerprint = if snapshot.data.comparison.view == "code" {
         hash(
             &serde_json::to_vec(&(
@@ -741,6 +893,10 @@ pub async fn read_content(
 }
 
 pub fn editor_tab_width(root: &Path, path: &str, fallback: u32) -> u32 {
+    editorconfig_tab_width(root, path).unwrap_or(fallback.clamp(1, 16))
+}
+
+pub fn editorconfig_tab_width(root: &Path, path: &str) -> Option<u32> {
     let absolute = root.join(path);
     let mut configs = vec![];
     let mut directory = absolute.parent();
@@ -800,5 +956,4 @@ pub fn editor_tab_width(root: &Path, path: &str, fallback: u32) -> u32 {
         .or_else(|| properties.get("indent_size"))
         .and_then(|s| s.parse().ok())
         .filter(|n| (1..=16).contains(n))
-        .unwrap_or(fallback.clamp(1, 16))
 }

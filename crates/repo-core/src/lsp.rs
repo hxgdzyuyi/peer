@@ -1,0 +1,382 @@
+//! A small read-only stdio LSP client. Source coordinates are always UTF-16.
+use crate::navigation::{LanguageServer, NavigationError};
+use serde_json::{json, Value};
+use std::{
+    collections::HashMap,
+    path::Path,
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex, Weak,
+    },
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    process::{Child, Command},
+    sync::{mpsc, oneshot},
+};
+
+type Reply = Result<Value, NavigationError>;
+struct Inner {
+    sender: mpsc::UnboundedSender<Value>,
+    pending: Mutex<HashMap<u64, oneshot::Sender<Reply>>>,
+    child: Mutex<Child>,
+    sequence: AtomicU64,
+    failed: AtomicBool,
+    stderr: Mutex<String>,
+}
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let _ = self.child.get_mut().unwrap().start_kill();
+    }
+}
+#[derive(Clone)]
+pub(crate) struct Client {
+    inner: Arc<Inner>,
+    pub capabilities: Value,
+}
+struct Pending {
+    inner: Weak<Inner>,
+    id: u64,
+}
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.upgrade() {
+            if inner.pending.lock().unwrap().remove(&self.id).is_some() {
+                let _ = inner.sender.send(
+                    json!({"jsonrpc":"2.0", "method":"$/cancelRequest", "params":{"id":self.id}}),
+                );
+            }
+        }
+    }
+}
+pub(crate) fn uri(path: &Path) -> Result<String, NavigationError> {
+    url::Url::from_file_path(path)
+        .map(|url| url.to_string())
+        .map_err(|_| NavigationError::new("missingSource", "Invalid source path"))
+}
+pub(crate) fn file_path(uri: &str) -> Result<std::path::PathBuf, NavigationError> {
+    url::Url::parse(uri)
+        .ok()
+        .filter(|url| url.scheme() == "file")
+        .and_then(|url| url.to_file_path().ok())
+        .ok_or_else(|| {
+            NavigationError::new(
+                "missingSource",
+                "The language server returned a non-local source document",
+            )
+        })
+}
+fn configuration(settings: &Value, section: Option<&str>) -> Value {
+    let Some(section) = section.filter(|s| !s.is_empty()) else {
+        return settings.clone();
+    };
+    if let Some(value) = settings.get(section) {
+        return value.clone();
+    }
+    section
+        .split('.')
+        .try_fold(settings, |value, part| value.get(part))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+impl Client {
+    pub async fn start(config: &LanguageServer, root: &Path) -> Result<Self, NavigationError> {
+        let mut command = Command::new(&config.executable);
+        command
+            .args(&config.args)
+            .envs(&config.env)
+            .current_dir(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = command.spawn().map_err(|error| NavigationError::new("missingServer", format!(
+            "Cannot start {} ({}): {error}. Install its language server and toolchain, or configure its executable in Settings → Code navigation.", config.name, config.executable)))?;
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let (sender, mut messages) = mpsc::unbounded_channel::<Value>();
+        let inner = Arc::new(Inner {
+            sender,
+            pending: Mutex::new(HashMap::new()),
+            child: Mutex::new(child),
+            sequence: AtomicU64::new(1),
+            failed: AtomicBool::new(false),
+            stderr: Mutex::new(String::new()),
+        });
+        tokio::spawn(async move {
+            while let Some(message) = messages.recv().await {
+                let bytes = serde_json::to_vec(&message).unwrap();
+                if stdin
+                    .write_all(format!("Content-Length: {}\r\n\r\n", bytes.len()).as_bytes())
+                    .await
+                    .is_err()
+                    || stdin.write_all(&bytes).await.is_err()
+                    || stdin.flush().await.is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let weak = Arc::downgrade(&inner);
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = reader.read(&mut buffer).await {
+                if count == 0 {
+                    break;
+                }
+                let Some(inner) = weak.upgrade() else { break };
+                let mut text = inner.stderr.lock().unwrap();
+                text.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                if text.len() > 8192 {
+                    *text = text
+                        .chars()
+                        .rev()
+                        .take(4096)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
+                }
+            }
+        });
+        let weak = Arc::downgrade(&inner);
+        let settings = config.settings.clone();
+        let root_uri = uri(root)?;
+        let workspace_uri = root_uri.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout);
+            let failure = loop {
+                let mut length = None;
+                let mut header = String::new();
+                let mut broken = false;
+                let mut header_bytes = 0;
+                loop {
+                    header.clear();
+                    match (&mut reader).take(8193).read_line(&mut header).await {
+                        Ok(0) | Err(_) => {
+                            broken = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                    if header == "\r\n" || header == "\n" {
+                        break;
+                    }
+                    header_bytes += header.len();
+                    if header_bytes > 8192 {
+                        broken = true;
+                        break;
+                    }
+                    if let Some((name, value)) = header.split_once(':') {
+                        if name.eq_ignore_ascii_case("content-length") {
+                            length = value.trim().parse::<usize>().ok();
+                        }
+                    }
+                }
+                if broken {
+                    break "Language server exited. Check its toolchain and project dependencies, then retry.";
+                }
+                let Some(length) = length.filter(|length| *length <= 64 * 1024 * 1024) else {
+                    break "Invalid language-server message size";
+                };
+                let mut bytes = vec![0; length];
+                if reader.read_exact(&mut bytes).await.is_err() {
+                    break "Language server disconnected";
+                }
+                let Ok(message) = serde_json::from_slice::<Value>(&bytes) else {
+                    break "Invalid language-server JSON";
+                };
+                let Some(inner) = weak.upgrade() else { return };
+                if let Some(method) = message.get("method").and_then(Value::as_str) {
+                    if let Some(id) = message.get("id") {
+                        let params = &message["params"];
+                        let result = match method {
+                            "workspace/configuration" => Some(Value::Array(
+                                params["items"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .map(|item| configuration(&settings, item["section"].as_str()))
+                                    .collect(),
+                            )),
+                            "workspace/workspaceFolders" => {
+                                Some(json!([{"uri":workspace_uri,"name":"Peer snapshot"}]))
+                            }
+                            "window/workDoneProgress/create"
+                            | "client/registerCapability"
+                            | "client/unregisterCapability"
+                            | "window/showMessageRequest" => Some(Value::Null),
+                            "workspace/applyEdit" => {
+                                Some(json!({"applied":false,"failureReason":"Peer is read-only"}))
+                            }
+                            _ => None,
+                        };
+                        let reply = match result {
+                            Some(result) => json!({"jsonrpc":"2.0", "id":id, "result":result}),
+                            None => {
+                                json!({"jsonrpc":"2.0", "id":id,"error":{"code":-32601,"message":"Method not supported"}})
+                            }
+                        };
+                        let _ = inner.sender.send(reply);
+                    }
+                } else if let Some(id) = message["id"].as_u64() {
+                    if let Some(sender) = inner.pending.lock().unwrap().remove(&id) {
+                        let result = if let Some(error) = message.get("error") {
+                            Err(NavigationError::new(
+                                "serverError",
+                                error["message"].as_str().unwrap_or("Language-server error"),
+                            ))
+                        } else {
+                            Ok(message.get("result").cloned().unwrap_or(Value::Null))
+                        };
+                        let _ = sender.send(result);
+                    }
+                }
+            };
+            if let Some(inner) = weak.upgrade() {
+                inner.failed.store(true, Ordering::SeqCst);
+                let _ = inner.child.lock().unwrap().start_kill();
+                let detail = inner.stderr.lock().unwrap().clone();
+                for (_, sender) in inner.pending.lock().unwrap().drain() {
+                    let _ = sender.send(Err(NavigationError::new(
+                        "serverError",
+                        format!("{failure}\n{detail}").trim(),
+                    )));
+                }
+            }
+        });
+        let mut client = Self {
+            inner,
+            capabilities: Value::Null,
+        };
+        let result = client.request("initialize", json!({
+            "processId":std::process::id(),"clientInfo":{"name":"Peer","version":env!("CARGO_PKG_VERSION")},
+            "rootUri":root_uri,"workspaceFolders":[{"uri":root_uri,"name":"Peer snapshot"}],
+            "initializationOptions":config.initialization_options,
+            "capabilities":{"general":{"positionEncodings":["utf-16"]},
+                "workspace":{"configuration":true,"workspaceFolders":true,"applyEdit":false},
+                "window":{"workDoneProgress":true},
+                "textDocument":{"definition":{"linkSupport":true},"references":{},"synchronization":{"didSave":false}}}
+        }), Duration::from_secs(60)).await?;
+        client.capabilities = result["capabilities"].clone();
+        if client.capabilities["positionEncoding"]
+            .as_str()
+            .is_some_and(|encoding| encoding != "utf-16")
+        {
+            return Err(NavigationError::new(
+                "unsupported",
+                "Language server did not negotiate UTF-16 positions",
+            ));
+        }
+        client.notify("initialized", json!({}))?;
+        client.notify(
+            "workspace/didChangeConfiguration",
+            json!({"settings":config.settings}),
+        )?;
+        Ok(client)
+    }
+    pub fn notify(&self, method: &str, params: Value) -> Result<(), NavigationError> {
+        self.inner
+            .sender
+            .send(json!({"jsonrpc":"2.0","method":method,"params":params}))
+            .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))
+    }
+    pub async fn request(&self, method: &str, params: Value, timeout: Duration) -> Reply {
+        if !self.alive() {
+            return Err(NavigationError::new(
+                "serverError",
+                "Language server exited; retry to restart it",
+            ));
+        }
+        let id = self.inner.sequence.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = oneshot::channel();
+        self.inner.pending.lock().unwrap().insert(id, sender);
+        let _pending = Pending {
+            inner: Arc::downgrade(&self.inner),
+            id,
+        };
+        self.inner
+            .sender
+            .send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+            .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))?;
+        tokio::time::timeout(timeout, receiver).await
+            .map_err(|_| NavigationError::new("timeout", "Language server timed out. Check project dependencies or retry after indexing."))?
+            .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))?
+    }
+    pub fn alive(&self) -> bool {
+        !self.inner.failed.load(Ordering::SeqCst)
+            && self
+                .inner
+                .child
+                .lock()
+                .unwrap()
+                .try_wait()
+                .ok()
+                .flatten()
+                .is_none()
+    }
+    pub async fn shutdown(&self) {
+        let _ = self
+            .request("shutdown", Value::Null, Duration::from_secs(1))
+            .await;
+        let _ = self.notify("exit", Value::Null);
+        let _ = self.inner.child.lock().unwrap().start_kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_timed_out_request_does_not_poison_the_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("call.ts");
+        std::fs::write(&path, "hang();\nconst value = 1;\nvalue;\n").unwrap();
+        let mut server = crate::navigation::default_servers().remove(1);
+        server.executable = "node".into();
+        server.args = vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/fake-lsp.mjs")
+            .to_str()
+            .unwrap()
+            .into()];
+        server.settings = json!({"fixture":{"enabled":true,"nested":{"value":42}}});
+        server.env.insert(
+            "PEER_FAKE_EXPECT_CONFIG".into(),
+            json!([server.settings["fixture"]]).to_string(),
+        );
+        let client = Client::start(&server, root.path()).await.unwrap();
+        let uri = uri(&path).unwrap();
+        let error = client
+            .request(
+                "textDocument/definition",
+                json!({"textDocument":{"uri":uri},"position":{"line":0,"character":1}}),
+                Duration::from_millis(50),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "timeout");
+        let result = client
+            .request(
+                "textDocument/definition",
+                json!({"textDocument":{"uri":uri},"position":{"line":2,"character":1}}),
+                Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result[0]["range"]["start"]["line"], 1);
+        client.shutdown().await;
+        for _ in 0..100 {
+            if !client.alive() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!client.alive());
+    }
+}
