@@ -37,6 +37,8 @@ export const api = {
     invoke<void>("save_preferences", { preferences }),
   open: (path: string, comparison: Comparison | null) =>
     invoke<Snapshot>("open_repository", { path, comparison }),
+  relocate: (previousPath: string, path: string) =>
+    invoke<Snapshot>("relocate_repository", { previousPath, path }),
   read: (snapshotId: string, fileId: string, force = false) =>
     invoke<FileContent>("read_file", { snapshotId, fileId, force }),
   branches: (snapshotId: string) =>

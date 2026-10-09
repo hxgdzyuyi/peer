@@ -254,6 +254,7 @@ pub struct AppData {
     pub schema_version: u32,
     pub preferences: Preferences,
     pub queues: BTreeMap<String, ReviewQueue>,
+    pub repository_ids: BTreeMap<String, String>,
     pub themes: Vec<ImportedTheme>,
 }
 impl Default for AppData {
@@ -262,6 +263,7 @@ impl Default for AppData {
             schema_version: 1,
             preferences: Preferences::default(),
             queues: BTreeMap::new(),
+            repository_ids: BTreeMap::new(),
             themes: vec![],
         }
     }

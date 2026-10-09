@@ -46,6 +46,14 @@ async fn open_repository(
     core.open_repository(&path, comparison).await
 }
 #[tauri::command]
+async fn relocate_repository(
+    core: State<'_, Inspector>,
+    previous_path: String,
+    path: String,
+) -> Result<Snapshot, String> {
+    core.relocate_repository(&previous_path, &path).await
+}
+#[tauri::command]
 async fn read_file(
     core: State<'_, Inspector>,
     snapshot_id: String,
@@ -187,6 +195,7 @@ pub fn run() {
             cancel_navigation,
             save_preferences,
             open_repository,
+            relocate_repository,
             read_file,
             list_branches,
             list_commits,

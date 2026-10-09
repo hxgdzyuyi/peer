@@ -159,10 +159,14 @@ async fn commit_diff_and_feedback_use_frozen_parent_and_commit_contents() {
         .await
         .unwrap();
     assert!(!app.queue(&restored.id).await.unwrap().comments[0].outdated);
-    let inventory =
-        repository::create_snapshot(repo.path().to_str().unwrap(), comparison(&selected), None)
-            .await
-            .unwrap();
+    let inventory = repository::create_snapshot(
+        repo.path().to_str().unwrap(),
+        comparison(&selected),
+        None,
+        &Default::default(),
+    )
+    .await
+    .unwrap();
     for side in ["old", "new"] {
         let file = &inventory.navigation[side]["value.ts"];
         assert!(file.blob.is_some());

@@ -1,5 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, FolderOpen, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  FolderOpen,
+  FolderPen,
+  Plus,
+  X,
+} from "lucide-react";
 
 export function RepositorySwitcher({
   current,
@@ -7,12 +14,16 @@ export function RepositorySwitcher({
   disabled,
   onSelect,
   onOpen,
+  onRelocate,
+  onRemove,
 }: {
   current: { root: string; name: string } | null;
   repositories: string[];
   disabled: boolean;
   onSelect: (path: string) => void;
   onOpen: () => void;
+  onRelocate: (path: string) => void;
+  onRemove: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
@@ -103,46 +114,93 @@ export function RepositorySwitcher({
         >
           <div className="repository-menu-label">Repositories</div>
           {paths.map((path, index) => (
-            <button
+            <div
               key={path}
-              ref={(node) => {
-                items.current[index] = node;
-              }}
-              role="menuitemradio"
-              aria-checked={path === current?.root}
-              tabIndex={-1}
-              title={path}
-              data-repository-path={path}
-              onClick={() => {
-                setOpen(false);
-                trigger.current?.focus();
-                if (path !== current?.root) onSelect(path);
-              }}
+              className="repository-menu-row"
+              role="none"
               onKeyDown={(event) => {
+                const buttons = Array.from(
+                  event.currentTarget.querySelectorAll("button"),
+                );
+                const column = buttons.indexOf(
+                  event.target as HTMLButtonElement,
+                );
                 let next: number;
-                if (event.key === "ArrowDown")
-                  next = (index + 1) % paths.length;
-                else if (event.key === "ArrowUp")
-                  next = (index - 1 + paths.length) % paths.length;
-                else if (event.key === "Home") next = 0;
-                else if (event.key === "End") next = paths.length - 1;
-                else return;
+                if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                  const direction = event.key === "ArrowRight" ? 1 : -1;
+                  buttons[
+                    (column + direction + buttons.length) % buttons.length
+                  ]?.focus();
+                } else {
+                  if (event.key === "ArrowDown")
+                    next = (index + 1) % paths.length;
+                  else if (event.key === "ArrowUp")
+                    next = (index - 1 + paths.length) % paths.length;
+                  else if (event.key === "Home") next = 0;
+                  else if (event.key === "End") next = paths.length - 1;
+                  else return;
+                  items.current[next]?.focus();
+                }
                 event.preventDefault();
                 event.stopPropagation();
-                items.current[next]?.focus();
               }}
             >
-              <FolderOpen size={16} />
-              <span className="repository-menu-text">
-                <strong>
-                  {path.split(/[\\/]/).filter(Boolean).at(-1) ?? path}
-                </strong>
-                <small>{path}</small>
-              </span>
-              {path === current?.root && (
-                <Check size={15} className="repository-current" />
-              )}
-            </button>
+              <button
+                className="repository-menu-select"
+                ref={(node) => {
+                  items.current[index] = node;
+                }}
+                role="menuitemradio"
+                aria-checked={path === current?.root}
+                tabIndex={-1}
+                title={path}
+                data-repository-path={path}
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  if (path !== current?.root) onSelect(path);
+                }}
+              >
+                <FolderOpen size={16} />
+                <span className="repository-menu-text">
+                  <strong>
+                    {path.split(/[\\/]/).filter(Boolean).at(-1) ?? path}
+                  </strong>
+                  <small>{path}</small>
+                </span>
+                {path === current?.root && (
+                  <Check size={15} className="repository-current" />
+                )}
+              </button>
+              <button
+                className="repository-menu-action"
+                role="menuitem"
+                tabIndex={-1}
+                aria-label={`Update location for ${path}`}
+                title="Update location"
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  onRelocate(path);
+                }}
+              >
+                <FolderPen size={15} />
+              </button>
+              <button
+                className="repository-menu-action"
+                role="menuitem"
+                tabIndex={-1}
+                aria-label={`Remove ${path} from list`}
+                title="Remove from list (does not delete files)"
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  onRemove(path);
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
           ))}
         </div>
       )}

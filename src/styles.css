@@ -348,6 +348,40 @@ p {
 .repository-current {
   color: var(--accent);
 }
+.repository-menu-row {
+  display: flex;
+  align-items: center;
+}
+.repository-menu-select {
+  flex: 1;
+  min-width: 0;
+}
+.repository-menu .repository-menu-action {
+  flex: 0 0 30px;
+  width: 30px;
+  justify-content: center;
+  padding: 8px 0;
+  color: var(--muted);
+}
+.repository-location {
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+}
+.repository-location-input {
+  display: flex;
+  gap: 8px;
+}
+.repository-location-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+}
+.repository-location-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .view-switch {
   display: flex;
   padding: 3px;

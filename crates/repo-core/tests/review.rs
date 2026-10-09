@@ -46,6 +46,138 @@ fn code() -> Comparison {
     }
 }
 
+#[tokio::test]
+async fn relocating_repository_preserves_sessions_and_review_queues_after_restart() {
+    let repo = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    fs::write(repo.path().join("hello.ts"), "changed\n").unwrap();
+    let mut originals = Vec::new();
+    for comparison in [mode("all"), code()] {
+        let snapshot = app
+            .open_repository(repo.path().to_str().unwrap(), Some(comparison))
+            .await
+            .unwrap();
+        let file = snapshot
+            .files
+            .iter()
+            .find(|f| f.path == "hello.ts")
+            .unwrap();
+        let content = app.read_file(&snapshot.id, &file.id, false).await.unwrap();
+        app.add_comment(NewComment {
+            snapshot_id: snapshot.id.clone(),
+            file_id: file.id.clone(),
+            fingerprint: content.fingerprint.clone(),
+            body: snapshot.comparison.view.clone(),
+            side: None,
+            line: None,
+        })
+        .await
+        .unwrap();
+        if snapshot.comparison.view == "changes" {
+            app.set_reviewed(&snapshot.id, &file.id, &content.fingerprint, true)
+                .await
+                .unwrap();
+        }
+        originals.push(snapshot);
+    }
+    let previous = &originals[0].repository.root;
+    let mut preferences = app.store.read().unwrap().preferences;
+    preferences.sessions.insert(
+        previous.clone(),
+        peer_core::types::Session {
+            comparison: code(),
+            selected_path: Some("hello.ts".into()),
+            scroll_top: 120.0,
+            last_changes: Some(mode("all")),
+        },
+    );
+    app.save_preferences(preferences).unwrap();
+    let moved = destination.path().join("renamed");
+    fs::rename(repo.path(), &moved).unwrap();
+    let relocated = app
+        .relocate_repository(previous, moved.to_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(relocated.repository.name, "renamed");
+    assert_eq!(relocated.repository.id, originals[0].repository.id);
+    assert_eq!(relocated.comparison.view, "code");
+    let root = relocated.repository.root;
+    let preferences = app.store.read().unwrap().preferences;
+    assert_eq!(preferences.recent_repositories, vec![root.clone()]);
+    assert_eq!(preferences.last_repository.as_deref(), Some(root.as_str()));
+    assert!(!preferences.sessions.contains_key(previous));
+    assert_eq!(
+        preferences.sessions[&root].selected_path.as_deref(),
+        Some("hello.ts")
+    );
+    assert_eq!(preferences.sessions[&root].scroll_top, 120.0);
+    let restarted = Inspector::new(store.path()).unwrap();
+    for original in originals {
+        let snapshot = restarted
+            .open_repository(&root, Some(original.comparison.clone()))
+            .await
+            .unwrap();
+        assert_eq!(snapshot.queue_id, original.queue_id);
+        let queue = restarted.queue(&snapshot.id).await.unwrap();
+        assert_eq!(queue.comments[0].body, original.comparison.view);
+        assert!(!queue.comments[0].outdated);
+        if original.comparison.view == "changes" {
+            assert!(queue.reviewed.contains_key("hello.ts"));
+        }
+    }
+    fs::create_dir(repo.path()).unwrap();
+    git(repo.path(), &["init", "-b", "main"]);
+    fs::write(repo.path().join("hello.ts"), "changed\n").unwrap();
+    let reused = restarted
+        .open_repository(repo.path().to_str().unwrap(), Some(code()))
+        .await
+        .unwrap();
+    assert_ne!(reused.repository.id, relocated.repository.id);
+    assert!(restarted
+        .queue(&reused.id)
+        .await
+        .unwrap()
+        .comments
+        .is_empty());
+    let reopened = Inspector::new(store.path())
+        .unwrap()
+        .open_repository(repo.path().to_str().unwrap(), Some(code()))
+        .await
+        .unwrap();
+    assert_eq!(reopened.repository.id, reused.repository.id);
+}
+
+#[tokio::test]
+async fn invalid_relocation_does_not_replace_saved_repositories_or_reviews() {
+    let repo = fixture();
+    let other = fixture();
+    let store = tempfile::tempdir().unwrap();
+    let app = Inspector::new(store.path()).unwrap();
+    let original = app
+        .open_repository(repo.path().to_str().unwrap(), None)
+        .await
+        .unwrap();
+    let other = app
+        .open_repository(other.path().to_str().unwrap(), None)
+        .await
+        .unwrap();
+    let invalid = tempfile::tempdir().unwrap();
+    let before = fs::read(store.path().join("state.json")).unwrap();
+    for path in [
+        invalid.path().join("missing"),
+        invalid.path().to_path_buf(),
+        other.repository.root.into(),
+    ] {
+        assert!(app
+            .relocate_repository(&original.repository.root, path.to_str().unwrap())
+            .await
+            .is_err());
+        assert_eq!(fs::read(store.path().join("state.json")).unwrap(), before);
+    }
+}
+
 #[cfg(unix)]
 fn interrupt_next_snapshot(repo: &Path, app: &Inspector, command: &str, action: &str) {
     use std::os::unix::fs::PermissionsExt;

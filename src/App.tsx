@@ -43,6 +43,7 @@ import { Settings, type SettingsTab } from "./Settings";
 import { Modal } from "./Modal";
 import { QuickOpen } from "./QuickOpen";
 import { RepositorySwitcher } from "./RepositorySwitcher";
+import { RepositoryLocation } from "./RepositoryLocation";
 import { CommitHistory, commitDate } from "./CommitHistory";
 import { textMatches, type SourceMatch } from "./search";
 import { HighlightCacheBudget } from "./HighlightCacheBudget";
@@ -107,6 +108,9 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, Draft | undefined>>({});
   const [quickOpen, setQuickOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [repositoryToUpdate, setRepositoryToUpdate] = useState<string | null>(
+    null,
+  );
   const findFocus = useRef("Find in file");
   const [findText, setFindText] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
@@ -180,7 +184,11 @@ export default function App() {
   useEffect(() => applyTheme(theme), [theme]);
 
   const openRepository = useCallback(
-    async (path: string, comparison: Comparison | null = null) => {
+    async (
+      path: string,
+      comparison: Comparison | null = null,
+      previousPath?: string,
+    ) => {
       const request = ++opening.current;
       const previous = snapshotRef.current;
       const oldPath = previous?.files.find(
@@ -212,7 +220,9 @@ export default function App() {
       try {
         await prefWrites.current;
         await api.savePreferences(preferencesRef.current);
-        const next = await api.open(path, comparison);
+        const next = previousPath
+          ? await api.relocate(previousPath, path)
+          : await api.open(path, comparison);
         const [nextQueue, nextBranches] = await Promise.all([
           api.queue(next.id),
           api.branches(next.id),
@@ -226,15 +236,16 @@ export default function App() {
         setSnapshot(next);
         setQueue(nextQueue);
         setBranches(nextBranches);
-        const stored = preferencesRef.current.sessions[next.repository.root];
+        const stored =
+          preferencesRef.current.sessions[previousPath ?? next.repository.root];
         const wantedPath =
-          previous?.repository.root === next.repository.root
+          previous?.repository.root === (previousPath ?? next.repository.root)
             ? oldPath
             : stored?.selectedPath;
         const viewport =
           previous &&
           previousViewport &&
-          previous.repository.root === next.repository.root &&
+          previous.repository.root === (previousPath ?? next.repository.root) &&
           JSON.stringify(previous.comparison) ===
             JSON.stringify(next.comparison)
             ? refreshedViewport(previousViewport, previous.files, next.files)
@@ -262,25 +273,29 @@ export default function App() {
               : stored?.comparison.view === next.comparison.view
                 ? stored.scrollTop
                 : 0;
-        setPreferences((p) => ({
-          ...p,
-          lastRepository: next.repository.root,
-          recentRepositories: [
-            next.repository.root,
-            ...p.recentRepositories.filter((v) => v !== next.repository.root),
-          ].slice(0, 12),
-          sessions: {
-            ...p.sessions,
-            [next.repository.root]: {
-              comparison: next.comparison,
-              lastChanges: lastChanges.current,
-              selectedPath:
-                next.files.find((f) => f.id === nextSelected)?.path ?? null,
-              scrollTop: viewport?.top ?? scrollToRestore.current ?? 0,
-            },
-          },
-        }));
+        const nextPreferences = { ...preferencesRef.current };
+        const sessions = { ...nextPreferences.sessions };
+        if (previousPath && previousPath !== next.repository.root)
+          delete sessions[previousPath];
+        sessions[next.repository.root] = {
+          comparison: next.comparison,
+          lastChanges: lastChanges.current,
+          selectedPath:
+            next.files.find((f) => f.id === nextSelected)?.path ?? null,
+          scrollTop: viewport?.top ?? scrollToRestore.current ?? 0,
+        };
+        nextPreferences.lastRepository = next.repository.root;
+        nextPreferences.recentRepositories = [
+          next.repository.root,
+          ...nextPreferences.recentRepositories.filter(
+            (v) => v !== next.repository.root && v !== previousPath,
+          ),
+        ].slice(0, 12);
+        nextPreferences.sessions = sessions;
+        preferencesRef.current = nextPreferences;
+        setPreferences(nextPreferences);
       } catch (e) {
+        if (previousPath) throw e;
         if (request === opening.current) reportError(e);
       } finally {
         if (request === opening.current) setBusy(false);
@@ -311,14 +326,14 @@ export default function App() {
     };
   }, [openRepository, reportError]);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || busy) return;
     const timer = setTimeout(() => {
       prefWrites.current = prefWrites.current
         .then(() => api.savePreferences(preferences))
         .catch(reportError);
     }, 250);
     return () => clearTimeout(timer);
-  }, [preferences, ready, reportError]);
+  }, [preferences, ready, busy, reportError]);
 
   const loadFile = useCallback(
     async (id: string, force = false): Promise<LoadedFile> => {
@@ -462,6 +477,52 @@ export default function App() {
       reportError(e);
     }
   }, [openRepository, reportError]);
+  const removeRepository = useCallback(
+    async (path: string) => {
+      setBusy(true);
+      setError("");
+      clearTimeout(scrollTimer.current);
+      try {
+        const next = {
+          ...preferencesRef.current,
+          recentRepositories: preferencesRef.current.recentRepositories.filter(
+            (value) => value !== path,
+          ),
+          lastRepository:
+            preferencesRef.current.lastRepository === path
+              ? null
+              : preferencesRef.current.lastRepository,
+        };
+        await prefWrites.current;
+        await api.savePreferences(next);
+        preferencesRef.current = next;
+        setPreferences(next);
+        if (snapshotRef.current?.repository.root === path) {
+          ++opening.current;
+          snapshotRef.current = null;
+          loadedRef.current = {};
+          selectionRef.current = null;
+          codeCache.current.clear();
+          scrollToRestore.current = null;
+          refreshToRestore.current = null;
+          setSnapshot(null);
+          setSelected(null);
+          setLoaded({});
+          setErrors({});
+          setQueue(emptyQueue);
+          setBranches([]);
+          setQuickOpen(false);
+          setFindOpen(false);
+        }
+        notify("Repository removed from the list. Files were not changed.");
+      } catch (e) {
+        reportError(e);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [notify, reportError],
+  );
   const refresh = useCallback(() => {
     const s = snapshotRef.current;
     if (s) void openRepository(s.repository.root, s.comparison);
@@ -837,6 +898,8 @@ export default function App() {
             disabled={!ready || busy || saving}
             onSelect={(path) => void openRepository(path)}
             onOpen={() => void pickRepository()}
+            onRelocate={setRepositoryToUpdate}
+            onRemove={(path) => void removeRepository(path)}
           />
           {snapshot ? (
             <>
@@ -1452,6 +1515,16 @@ export default function App() {
             <Check size={14} />
             {message}
           </div>
+        )}
+        {repositoryToUpdate !== null && (
+          <RepositoryLocation
+            path={repositoryToUpdate}
+            onSave={async (path) => {
+              await openRepository(path, null, repositoryToUpdate);
+              setRepositoryToUpdate(null);
+            }}
+            onClose={() => setRepositoryToUpdate(null)}
+          />
         )}
         {settings && (
           <Settings

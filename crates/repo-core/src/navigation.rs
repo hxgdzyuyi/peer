@@ -1222,6 +1222,7 @@ mod tests {
                 ..Default::default()
             },
             None,
+            &BTreeMap::new(),
         )
         .await
         .unwrap();
@@ -1277,6 +1278,7 @@ mod tests {
                     ..Default::default()
                 },
                 None,
+                &BTreeMap::new(),
             )
             .await
             .unwrap(),

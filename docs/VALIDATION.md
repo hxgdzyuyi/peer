@@ -2,6 +2,16 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Repository location repair and removal — 2026-10-09 JST
+
+The repository dropdown now offers explicit Update location and Remove from list actions, including for the active repository and missing paths. Relocation validates the new Git root, migrates the saved session, and retains stable review-queue identity across renames and restarts. Reusing a moved repository's former directory receives a distinct identity. Removal forgets the list entry without deleting files or review data.
+
+`cargo test -p peer-core --locked` passed 36 tests, with two optional real-language-server tests ignored. `npm test` passed all 24 frontend/harness tests. Added core regressions for session/comment/Reviewed retention after relocation and restart, reused-path isolation, and invalid/conflicting destinations leaving saved data untouched.
+
+The native test app built successfully using `CARGO_TARGET_DIR=/tmp/peer-repository-lifecycle-target`; the previous target directory contained generated permission paths referring to the checkout's old name. All four existing repository-switcher desktop tests passed. A temporary native WKWebView smoke scenario renamed a real Git directory, rejected a missing replacement, cancelled the dialog, repaired the path, verified its name and comment after reload, removed a deleted inactive entry, removed the active entry without deleting its files, and verified the empty list after reload. Screenshots were inspected for the updated dropdown and location dialog. The temporary scenario was removed after verification; the full desktop suite was not rerun.
+
+The final smoke run also verified Right-arrow focus on the location action. Activation used the focused button's DOM click: the embedded driver's Enter implementation dispatches synthetic key events without a button's native default activation.
+
 ## Dead-code cleanup — 2026-10-09 JST
 
 Removed the unused `Store::directory` getter, an unread navigation-ref field, an always-hidden Reviewed icon, unused imports, redundant SVG styles, and unused benchmark state/control flow. Removed one duplicate parser whitespace test from `themes.test.ts`; `loaded-file.test.ts` retains exact source round-trip coverage for tabs, trailing spaces, CRLF, and missing final newlines. All desktop scenarios, Rust tests, and optional integration workloads remain.

@@ -30,6 +30,10 @@ The shared logo source is `assets/icon.svg`. After editing it, run `npm run icon
 
 Open a repository with the **+** button beside the repository name or ⌘/Ctrl O. Click the repository name to switch among the 12 most recently opened repositories; the dropdown shows their paths and marks the current one. Use arrow keys and Enter to choose, or Escape to close. The first opening shows Changes if any exist, otherwise Code. The app restores each repository's comparison, selected file, and scroll position, and keeps comment drafts while switching. Refresh with the toolbar or ⌘/Ctrl R after your agent edits files.
 
+For a renamed or moved repository, use its **Update location** folder icon in the dropdown, enter or browse to the new repository root, then choose **Update location**. Peer validates and opens the new location, replaces the old name/path, and preserves the saved view, comments, and Reviewed state. Invalid locations or locations already saved for another repository leave the original entry unchanged. This is an explicit repair, not automatic filesystem tracking.
+
+For a deleted or unwanted repository, use its **Remove from list** × button. Removing the active entry returns to the welcome screen; other open repositories are unaffected. Removal persists across restarts but never deletes repository files or saved review data. In the dropdown, Up/Down moves between repositories and Left/Right reaches each row's location and removal actions.
+
 - **Code:** existing tracked files plus non-ignored untracked files in the working directory.
 - **All local changes:** HEAD against working files, combining staged and unstaged edits.
 - **Staged:** HEAD against the index. **Unstaged:** index against working files.

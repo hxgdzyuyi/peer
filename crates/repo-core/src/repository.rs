@@ -209,6 +209,7 @@ pub async fn create_snapshot(
     path: &str,
     mut comparison: Comparison,
     git_path: Option<&str>,
+    repository_ids: &BTreeMap<String, String>,
 ) -> Result<RepositorySnapshot, String> {
     comparison.validate()?;
     if comparison.view == "code" {
@@ -235,7 +236,19 @@ pub async fn create_snapshot(
         .ok_or("Repository path is not UTF-8")?
         .to_string();
     let repository = Repository {
-        id: hash(root_string.as_bytes()),
+        id: repository_ids
+            .get(&root_string)
+            .cloned()
+            .unwrap_or_else(|| {
+                let id = hash(root_string.as_bytes());
+                // A moved repository keeps its identity. Reusing its old
+                // directory must not attach that repository's reviews.
+                if repository_ids.values().any(|saved| saved == &id) {
+                    uuid::Uuid::new_v4().to_string()
+                } else {
+                    id
+                }
+            }),
         name: root
             .file_name()
             .unwrap_or_default()

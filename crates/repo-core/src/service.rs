@@ -60,12 +60,30 @@ impl Inspector {
         path: &str,
         comparison: Option<Comparison>,
     ) -> Result<Snapshot, String> {
+        self.load_repository(path, comparison, None).await
+    }
+    pub async fn relocate_repository(
+        &self,
+        previous_path: &str,
+        path: &str,
+    ) -> Result<Snapshot, String> {
+        self.load_repository(path, None, Some(previous_path)).await
+    }
+    async fn load_repository(
+        &self,
+        path: &str,
+        comparison: Option<Comparison>,
+        previous_path: Option<&str>,
+    ) -> Result<Snapshot, String> {
         // A requested reload already authorizes a fresh snapshot. If an editor
         // or Git changes the source during discovery/reconciliation, start over
         // instead of asking the user to click Refresh a second time. Ordinary
         // reads and feedback mutations keep rejecting stale snapshots.
         for attempt in 0..3 {
-            match self.open_repository_once(path, comparison.clone()).await {
+            match self
+                .open_repository_once(path, comparison.clone(), previous_path)
+                .await
+            {
                 Err(error) if error == repository::STALE && attempt < 2 => continue,
                 result => return result,
             }
@@ -76,16 +94,61 @@ impl Inspector {
         &self,
         path: &str,
         comparison: Option<Comparison>,
+        previous_path: Option<&str>,
     ) -> Result<Snapshot, String> {
-        let preferences = self.store.read()?.preferences;
+        let data = self.store.read()?;
+        let preferences = data.preferences;
+        let mut repository_ids = data.repository_ids;
+        let relocation = if let Some(previous) = previous_path {
+            if !preferences
+                .recent_repositories
+                .iter()
+                .any(|p| p == previous)
+                && preferences.last_repository.as_deref() != Some(previous)
+            {
+                return Err("Repository is no longer in the list".into());
+            }
+            let root = std::fs::canonicalize(path)
+                .map_err(|e| format!("Cannot open repository: {e}"))?
+                .to_str()
+                .ok_or("Repository path is not UTF-8")?
+                .to_owned();
+            if root != previous
+                && (preferences.recent_repositories.contains(&root)
+                    || preferences.sessions.contains_key(&root)
+                    || repository_ids.contains_key(&root))
+            {
+                return Err("That location already belongs to a saved repository".into());
+            }
+            let id = repository_ids
+                .get(previous)
+                .cloned()
+                .unwrap_or_else(|| crate::hash(previous.as_bytes()));
+            repository_ids.insert(root.clone(), id);
+            Some(root)
+        } else {
+            None
+        };
+        let session = preferences.sessions.get(previous_path.unwrap_or(path));
         let requested = comparison
             .clone()
-            .or_else(|| preferences.sessions.get(path).map(|s| s.comparison.clone()))
+            .or_else(|| session.map(|s| s.comparison.clone()))
             .unwrap_or_default();
-        let mut snapshot =
-            repository::create_snapshot(path, requested, preferences.git_executable.as_deref())
-                .await?;
+        let mut snapshot = repository::create_snapshot(
+            path,
+            requested,
+            preferences.git_executable.as_deref(),
+            &repository_ids,
+        )
+        .await?;
+        if relocation
+            .as_ref()
+            .is_some_and(|root| root != &snapshot.data.repository.root)
+        {
+            return Err("Choose the repository's root folder, not a subfolder".into());
+        }
         if comparison.is_none()
+            && session.is_none()
             && !preferences
                 .sessions
                 .contains_key(&snapshot.data.repository.root)
@@ -98,12 +161,30 @@ impl Inspector {
                     ..Comparison::default()
                 },
                 preferences.git_executable.as_deref(),
+                &repository_ids,
             )
             .await?;
         }
+        // Reconcile before committing a location change so failed validation
+        // leaves the saved path and its identity untouched.
+        self.reconcile(&snapshot).await?;
         let result = snapshot.data.clone();
         self.store.update(|data| {
+            if let Some(previous) = previous_path {
+                let root = &result.repository.root;
+                if previous != root {
+                    data.preferences
+                        .recent_repositories
+                        .retain(|p| p != previous);
+                    if let Some(session) = data.preferences.sessions.remove(previous) {
+                        data.preferences.sessions.insert(root.clone(), session);
+                    }
+                    data.repository_ids.remove(previous);
+                }
+            }
             let root = &result.repository.root;
+            data.repository_ids
+                .insert(root.clone(), result.repository.id.clone());
             data.preferences.recent_repositories.retain(|p| p != root);
             data.preferences.recent_repositories.insert(0, root.clone());
             data.preferences.recent_repositories.truncate(12);
@@ -111,7 +192,6 @@ impl Inspector {
             data.queues.entry(result.queue_id.clone()).or_default();
             Ok(())
         })?;
-        self.reconcile(&snapshot).await?;
         let mut snapshots = self.snapshots.write().await;
         // Keep only the active snapshot per queue; no unbounded source retention.
         snapshots.retain(|_, s| s.data.queue_id != result.queue_id);
