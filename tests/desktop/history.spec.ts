@@ -1,4 +1,6 @@
 import { browser, $, $$, expect } from "@wdio/globals";
+import type * as Tauri from "@tauri-apps/api";
+type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -70,31 +72,39 @@ describe("Branch commit history", () => {
       async () =>
         (await (window as any).__TAURI__.core.invoke("bootstrap")).preferences,
     );
-    await browser.execute(
-      async ({ root, originalPreferences }) => {
-        await (window as any).__TAURI__.core.invoke("save_preferences", {
+  });
+  beforeEach(async () => {
+    await browser.execute(async () =>
+      (window as any).__TAURI__.window.getCurrentWindow().setFocus(),
+    );
+    const loadedAt = await browser.execute(
+      async ({ root, preferences }) => {
+        // The desktop driver launches Tauri with its global API enabled.
+        const appWindow = window as unknown as TauriWindow;
+        await appWindow.__TAURI__.core.invoke("save_preferences", {
           preferences: {
-            ...originalPreferences,
-            // Exercise both source columns even when this spec runs alone.
+            ...preferences,
             diffLayout: "split",
             lastRepository: root,
             sessions: {},
             recentRepositories: [root],
           },
         });
-        setTimeout(() => location.reload(), 100);
+        return performance.timeOrigin;
       },
-      { root, originalPreferences },
+      { root, preferences: originalPreferences },
+    );
+    await browser.refresh();
+    await browser.waitUntil(() =>
+      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
     );
     await browser.waitUntil(
       async () =>
         (await $('[aria-label="Switch repository"]').getAttribute("title")) ===
           root && (await $(trigger).isEnabled()),
     );
-  });
-  beforeEach(async () => {
-    await browser.execute(async () =>
-      (window as any).__TAURI__.window.getCurrentWindow().setFocus(),
+    await browser.waitUntil(async () =>
+      (await source()).includes("localOnly = 999"),
     );
   });
   after(async () => {
@@ -173,6 +183,7 @@ describe("Branch commit history", () => {
   });
 
   it("restores a selected commit after reload and returns to local changes", async () => {
+    await selectCommit(selected);
     await browser.waitUntil(async () =>
       browser.execute(async (selected) => {
         const { preferences } = await (window as any).__TAURI__.core.invoke(

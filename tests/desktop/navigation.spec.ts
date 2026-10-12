@@ -1,10 +1,14 @@
 import { browser, $, expect } from "@wdio/globals";
+import type * as Tauri from "@tauri-apps/api";
+import type { Preferences } from "../../src/types";
+type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 let originalPreferences: any;
+let scenarioPreferences: Preferences;
 const root = mkdtempSync(join(tmpdir(), "peer-navigation-ui-"));
 const oldDefinition =
   "// Old definition\nexport function asdf() {\n\treturn 'version A';\n}\n";
@@ -175,7 +179,7 @@ describe("Version-aware navigation", () => {
       async () =>
         (await (window as any).__TAURI__.core.invoke("bootstrap")).preferences,
     );
-    const preferences = {
+    scenarioPreferences = {
       ...originalPreferences,
       lastRepository: root,
       sessions: {},
@@ -195,19 +199,33 @@ describe("Version-aware navigation", () => {
       ],
       diffLayout: "unified",
       tabWidth: 4,
+      showWhitespace: false,
+      codeFontSize: 12,
     };
-    await browser.execute(async (preferences) => {
-      await (window as any).__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-      setTimeout(() => location.reload(), 100);
-    }, preferences);
-    await $('[data-file-path="call.ts"]').waitForExist();
   });
   beforeEach(async () => {
     await browser.execute(async () => {
       await (window as any).__TAURI__.window.getCurrentWindow().setFocus();
     });
+    const loadedAt = await browser.execute(async (preferences) => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      await appWindow.__TAURI__.core.invoke("save_preferences", {
+        preferences,
+      });
+      return performance.timeOrigin;
+    }, scenarioPreferences);
+    await browser.refresh();
+    await browser.waitUntil(() =>
+      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
+    );
+    await switchView("Changes");
+    await $('.tree-file[title="call.ts"]').click();
+    await expect($('.tree-file[title="call.ts"]')).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await sourceContains("asdf(); // B");
   });
   after(async () => {
     await browser.execute(async (preferences) => {
@@ -651,6 +669,9 @@ describe("Version-aware navigation", () => {
   });
 
   it("searches the displayed full source and returns through search and symbol jumps", async () => {
+    await switchView("Code");
+    await $('.tree-file[title="call.ts"]').click();
+    await sourceContains("asdf(); // B");
     await symbol("asdf");
     await key("F12");
     await sourceContains("version B");

@@ -13,6 +13,35 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: cargo test -p peer-core --locked
+  real-language-servers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rust-analyzer, rust-src
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.8"
+          # This Rust workspace has no go.sum; gopls pins its own dependencies.
+          cache: false
+      - uses: actions/setup-node@v4
+        with: { node-version: "22.14.0" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12.8" }
+      - name: Install pinned language servers
+        run: |
+          go install golang.org/x/tools/gopls@v0.23.0
+          npm install --global --omit=optional typescript@5.9.3 typescript-language-server@5.0.1 pyright@1.1.407
+      - name: Test real Go, TypeScript, JavaScript, and Rust navigation
+        run: cargo test -p peer-core --locked --test navigation real_language_servers_resolve_scopes_imports_methods_and_references -- --ignored --exact --nocapture
+      - name: Test real Python navigation
+        run: cargo test -p peer-core --locked --test navigation real_python_server_resolves_snapshot_imports_stubs_methods_and_references -- --ignored --exact --nocapture
   frontend:
     runs-on: ubuntu-latest
     steps:

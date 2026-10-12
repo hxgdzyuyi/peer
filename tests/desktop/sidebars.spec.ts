@@ -1,4 +1,7 @@
 import { browser, $, expect } from "@wdio/globals";
+import type * as Tauri from "@tauri-apps/api";
+import type { Bootstrap, Preferences } from "../../src/types";
+type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -55,8 +58,40 @@ const saved = () =>
   ).preferences.sidebarWidths;
 
 describe("Resizable sidebars in the native webview", () => {
-  let originalWidths: unknown;
+  let originalPreferences: Preferences;
   before(async () => {
+    originalPreferences = await browser.execute(async () => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      return (await appWindow.__TAURI__.core.invoke<Bootstrap>("bootstrap"))
+        .preferences;
+    });
+  });
+  beforeEach(async () => {
+    await browser.releaseActions();
+    await resizeWindow(1440);
+    const loadedAt = await browser.execute(async (preferences) => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      await appWindow.__TAURI__.core.invoke("save_preferences", {
+        preferences: {
+          ...preferences,
+          sessions: {},
+          // Non-default saved widths exercise restore/clamping in either scenario.
+          sidebarWidths: { files: 320, feedback: 400 },
+        },
+      });
+      return performance.timeOrigin;
+    }, originalPreferences);
+    await browser.refresh();
+    await browser.waitUntil(() =>
+      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
+    );
+    await browser.execute(async () => {
+      // Focus the new document, not the page that was replaced by reload.
+      const appWindow = window as unknown as TauriWindow;
+      await appWindow.__TAURI__.window.getCurrentWindow().setFocus();
+    });
     await $('[data-repository="benchmark-repo"]').waitForExist();
     await $('[aria-label="Refresh repository"]').waitForEnabled();
     await $('.tree-file[title="src/module-000.ts"]').click();
@@ -75,27 +110,22 @@ describe("Resizable sidebars in the native webview", () => {
             ?.textContent?.includes("item0_0") ?? false,
       ),
     );
-    originalWidths = await browser.execute(
+    await $(right).waitForExist();
+    await browser.waitUntil(
       async () =>
-        (await (window as any).__TAURI__.core.invoke("bootstrap")).preferences
-          .sidebarWidths,
-    );
-  });
-  beforeEach(async () => {
-    await browser.execute(async () =>
-      (window as any).__TAURI__.window.getCurrentWindow().setFocus(),
+        (await geometry()).files === 320 && (await geometry()).feedback === 400,
     );
   });
   after(async () => {
     await browser.releaseActions();
     await resizeWindow(1440);
-    await browser.execute(async (widths) => {
-      const api = (window as any).__TAURI__.core;
-      const { preferences } = await api.invoke("bootstrap");
-      await api.invoke("save_preferences", {
-        preferences: { ...preferences, sidebarWidths: widths },
+    await browser.execute(async (preferences) => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      await appWindow.__TAURI__.core.invoke("save_preferences", {
+        preferences,
       });
-    }, originalWidths);
+    }, originalPreferences);
   });
 
   it("drags both sidebars, preserves feedback drafts, and remembers widths after reload", async () => {

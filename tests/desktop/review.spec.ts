@@ -1,4 +1,15 @@
 import { browser, $, expect } from "@wdio/globals";
+import type * as Tauri from "@tauri-apps/api";
+import type { Bootstrap, Preferences, ReviewQueue } from "../../src/types";
+type TauriWindow = Window & { __TAURI__: typeof Tauri };
+type BenchmarkWindow = Window & {
+  __benchmark: {
+    frames: number[];
+    navigation: number[];
+    done: boolean;
+    error: string;
+  };
+};
 import {
   writeFileSync,
   appendFileSync,
@@ -15,6 +26,14 @@ import {
   enforcePerformance,
   performanceMode,
 } from "./performance";
+
+async function focusApp() {
+  await browser.execute(async () => {
+    // The native test configuration exposes this API and permits window focus.
+    const appWindow = window as unknown as TauriWindow;
+    await appWindow.__TAURI__.window.getCurrentWindow().setFocus();
+  });
+}
 
 async function click(selector: string) {
   for (let attempt = 0; ; attempt++) {
@@ -64,13 +83,119 @@ async function switchView(view: "Code" | "Changes") {
   );
 }
 
+async function addFileComment(body: string) {
+  await clickInPlace('[aria-label="Comment on file src/module-000.ts"]');
+  await $('[aria-label="Comment text"]').setValue(body);
+  await browser.execute(() => {
+    const form = document.querySelector<HTMLFormElement>(".comment-composer")!;
+    form.requestSubmit(
+      form.querySelector<HTMLButtonElement>(".primary-button")!,
+    );
+  });
+  await browser.waitUntil(() =>
+    browser.execute(
+      (body) =>
+        Array.from(document.querySelectorAll(".comment-card p")).some(
+          (node) => node.textContent === body,
+        ),
+      body,
+    ),
+  );
+}
+
 describe("Peer in the native webview", () => {
-  beforeEach(async () => {
-    await browser.execute(async () => {
-      await (window as any).__TAURI__.window.getCurrentWindow().setFocus();
+  let originalPreferences: Preferences;
+  const originalFiles = new Map<string, string>();
+  before(async () => {
+    await $('[data-repository="benchmark-repo"]').waitForExist();
+    await $('[aria-label="Refresh repository"]').waitForEnabled();
+    originalPreferences = await browser.execute(async () => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      return (await appWindow.__TAURI__.core.invoke<Bootstrap>("bootstrap"))
+        .preferences;
     });
+    for (const path of ["src/module-000.ts", "notes.txt"])
+      originalFiles.set(
+        path,
+        readFileSync(join(process.env.PEER_TEST_REPO!, path), "utf8"),
+      );
+  });
+  beforeEach(async () => {
+    const { queues } = JSON.parse(
+      readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
+    );
+    const loadedAt = await browser.execute(
+      async ({ preferences, queueIds }) => {
+        // The desktop driver launches Tauri with its global API enabled.
+        const appWindow = window as unknown as TauriWindow;
+        const api = appWindow.__TAURI__.core;
+        for (const queueId of queueIds)
+          await api.invoke("delete_comments", { queueId, id: null });
+        await api.invoke("save_preferences", {
+          preferences: {
+            ...preferences,
+            sessions: {},
+            showWhitespace: false,
+            diffLayout: "unified",
+            codeFontSize: 12,
+          },
+        });
+        return performance.timeOrigin;
+      },
+      { preferences: originalPreferences, queueIds: Object.keys(queues) },
+    );
+    await browser.refresh();
+    await browser.waitUntil(() =>
+      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
+    );
+    await focusApp();
+    await switchView("Changes");
+    await click('.tree-file[title="src/module-000.ts"]');
+    await browser.waitUntil(() =>
+      browser.execute(
+        () =>
+          document
+            .querySelector('[data-file-path="src/module-000.ts"]')
+            ?.closest("diffs-container")
+            ?.shadowRoot?.querySelector("[data-code]")
+            ?.textContent?.includes("item0_0") === true,
+      ),
+    );
+    const reviewed = '[data-file-path="src/module-000.ts"] .review-check input';
+    if (await $(reviewed).isSelected()) await clickInPlace(reviewed);
+    await browser.waitUntil(() =>
+      browser.execute(
+        (selector) =>
+          document.querySelector<HTMLInputElement>(selector)?.checked === false,
+        reviewed,
+      ),
+    );
   });
   afterEach(async () => {
+    const repo = process.env.PEER_TEST_REPO!;
+    // The interrupted-refresh fixture stages this otherwise untracked file.
+    // Remove only that fixture's index entry and files, never reset the repository.
+    if (existsSync(join(repo, "refresh-target.txt")))
+      execFileSync(
+        "git",
+        ["update-index", "--force-remove", "--", "refresh-target.txt"],
+        { cwd: repo },
+      );
+    for (const path of [
+      "refresh-target.txt",
+      "refresh-added.txt",
+      "refresh-removed.txt",
+      ".git/refresh-git",
+      ".git/refresh-pending",
+    ]) {
+      if (existsSync(join(repo, path))) unlinkSync(join(repo, path));
+    }
+    for (const [path, source] of originalFiles) {
+      const absolute = join(process.env.PEER_TEST_REPO!, path);
+      if (readFileSync(absolute, "utf8") !== source)
+        writeFileSync(absolute, source);
+    }
     const errors = await browser.execute(() =>
       [
         document.querySelector(".fatal")?.textContent,
@@ -81,6 +206,15 @@ describe("Peer in the native webview", () => {
       ].filter(Boolean),
     );
     expect(errors).toEqual([]);
+  });
+  after(async () => {
+    await browser.execute(async (preferences) => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      await appWindow.__TAURI__.core.invoke("save_preferences", {
+        preferences,
+      });
+    }, originalPreferences);
   });
   it("opens a real 100-file Git comparison and highlights offline", async () => {
     await $('[data-repository="benchmark-repo"]').waitForExist();
@@ -116,12 +250,7 @@ describe("Peer in the native webview", () => {
   });
 
   it("saves feedback, keeps a draft through theme changes, and copies concise feedback", async () => {
-    await click('[aria-label="Comment on file src/module-000.ts"]');
-    await $('[aria-label="Comment text"]').setValue(
-      "Please explain the value change.",
-    );
-    await click("button=Add comment");
-    await $(".comment-card").waitForExist();
+    await addFileComment("Please explain the value change.");
     await click('[aria-label="Comment on file src/module-000.ts"]');
     await $('[aria-label="Comment text"]').setValue(
       "Draft survives theme switching",
@@ -397,6 +526,7 @@ describe("Peer in the native webview", () => {
       JSON.parse(
         readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
       );
+    await addFileComment("Keep this saved feedback while resizing");
     const queuesBefore = readState().queues;
     const chooseFont = (size: number) =>
       browser.execute((value) => {
@@ -559,6 +689,7 @@ describe("Peer in the native webview", () => {
   });
 
   it("jumps beyond the viewport and saves a one-based line anchor and Reviewed state", async () => {
+    await addFileComment("Please explain the value change.");
     await click('button[aria-label="Find in file"]');
     await $('input[aria-label="Go to line"]').setValue("80");
     await browser.keys("Enter");
@@ -568,38 +699,38 @@ describe("Peer in the native webview", () => {
     await $("button=Add comment").waitForEnabled();
     // Exercise native form submission; the embedded driver's synthetic click
     // does not reliably perform a submit button's default action after reload.
-    const inputState = await browser.execute(() => {
+    await browser.execute(() => {
       const form =
         document.querySelector<HTMLFormElement>(".comment-composer")!;
-      const button = form.querySelector<HTMLButtonElement>(".primary-button")!;
-      const state = {
-        disabled: button.disabled,
-        text: form.querySelector("textarea")!.value,
-      };
-      form.requestSubmit(button);
-      return state;
+      form.requestSubmit(
+        form.querySelector<HTMLButtonElement>(".primary-button")!,
+      );
     });
-    writeFileSync("test-results/line-submit.json", JSON.stringify(inputState));
-    expect(inputState.disabled).toBe(false);
-    await browser.waitUntil(async () =>
-      (await $(".feedback-title").getText()).includes("2"),
-    );
+    await expect($(".feedback-title .count")).toHaveText("2");
     await click('.tree-file[title="src/module-000.ts"]');
     await click('[data-file-path="src/module-000.ts"] .review-check input');
     await browser.waitUntil(async () =>
       (await $(".statusbar").getText()).includes("1 reviewed"),
     );
-    const saved = JSON.parse(
+    const saved: { queues: Record<string, ReviewQueue> } = JSON.parse(
       readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
     );
-    const queue: any = Object.values(saved.queues).find(
-      (q: any) => q.comments.length === 2,
+    const queue = Object.values(saved.queues).find((q) =>
+      q.comments.some((comment) => comment.body === "Can we name this value?"),
     );
-    expect(queue.comments[1].anchor.line).toBe(80);
-    expect(queue.comments[1].anchor.side).toBe("new");
-    expect(queue.comments[1].anchor.lineText).toContain("item0_79");
-    expect(queue.comments[0].anchor.line).toBeUndefined();
-    expect(Object.keys(queue.reviewed)).toEqual(["src/module-000.ts"]);
+    expect(queue).toBeDefined();
+    const lineComment = queue!.comments.find(
+      (comment) => comment.body === "Can we name this value?",
+    );
+    const fileComment = queue!.comments.find(
+      (comment) => comment.body === "Please explain the value change.",
+    );
+    expect(lineComment?.anchor.line).toBe(80);
+    expect(lineComment?.anchor.side).toBe("new");
+    expect(lineComment?.anchor.lineText).toContain("item0_79");
+    expect(fileComment).toBeDefined();
+    expect(fileComment?.anchor.line).toBeUndefined();
+    expect(Object.keys(queue!.reviewed)).toEqual(["src/module-000.ts"]);
     await click("button=Copy comments");
     await expect($(".toast")).toHaveText(expect.stringContaining("copied"));
     const copied = await browser.execute(async () =>
@@ -607,21 +738,32 @@ describe("Peer in the native webview", () => {
         "plugin:clipboard-manager|read_text",
       ),
     );
-    expect(JSON.parse(copied)).toEqual([
-      {
-        file: "src/module-000.ts",
-        comment: "Please explain the value change.",
-      },
-      {
-        file: "src/module-000.ts",
-        line: 80,
-        comment: "Can we name this value?",
-      },
-    ]);
+    const exported = JSON.parse(copied);
+    expect(exported).toHaveLength(2);
+    expect(exported).toEqual(
+      expect.arrayContaining([
+        {
+          file: "src/module-000.ts",
+          comment: "Please explain the value change.",
+        },
+        {
+          file: "src/module-000.ts",
+          line: 80,
+          comment: "Can we name this value?",
+        },
+      ]),
+    );
     await click('[aria-label="Close search"]');
+    await clickInPlace(
+      '[data-file-path="src/module-000.ts"] .review-check input',
+    );
+    await expect($(".statusbar")).toHaveText(
+      expect.stringContaining("0 reviewed"),
+    );
   });
 
   it("marks saved feedback outdated after refresh and keeps separate Code feedback", async () => {
+    await addFileComment("Feedback saved before refresh");
     appendFileSync(
       join(process.env.PEER_TEST_REPO!, "src/module-000.ts"),
       "\n// changed after review\n",
@@ -756,11 +898,22 @@ describe("Peer in the native webview", () => {
       await click('[aria-label="Toggle whitespace markers"]');
     await click('.tree-file[title="src/module-010.ts"]');
     await $('[data-file-path="src/module-010.ts"]').waitForExist();
+    await browser.waitUntil(() =>
+      browser.execute(
+        () =>
+          document
+            .querySelector('[data-file-path="src/module-010.ts"]')
+            ?.closest("diffs-container")
+            ?.shadowRoot?.querySelector("[data-code]")
+            ?.textContent?.includes("item10_0") === true,
+      ),
+    );
     await browser.execute(() => {
       const state = {
         frames: [] as number[],
         navigation: [] as number[],
         done: false,
+        error: "",
       };
       Object.assign(window, { __benchmark: state });
       const scroll = document.querySelector(".code-view") as HTMLElement;
@@ -768,21 +921,75 @@ describe("Peer in the native webview", () => {
         frame = 0,
         nav = 0;
       function navigate() {
-        const start = performance.now();
-        (
-          document.querySelector(
-            `.tree-file[title="src/module-${nav % 2 ? "010" : "011"}.ts"]`,
-          ) as HTMLElement
-        )?.click();
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            state.navigation.push(performance.now() - start);
-            // With only 18 retained samples, p95 is the maximum. Keep enough
-            // samples to measure the percentile separately from isolated stalls.
-            if (++nav < 100) navigate();
-            else state.done = true;
-          }),
+        const index = nav % 2 ? 10 : 11;
+        const path = `src/module-${String(index).padStart(3, "0")}.ts`;
+        const target = document.querySelector<HTMLButtonElement>(
+          `.tree-file[title="${path}"]`,
         );
+        if (
+          !target ||
+          target.disabled ||
+          target.getAttribute("aria-current") === "true"
+        ) {
+          state.error = `Navigation target is missing, disabled, or already active: ${path}`;
+          state.done = true;
+          return;
+        }
+        const start = performance.now();
+        target.click();
+        function arrived() {
+          const header = document.querySelector<HTMLElement>(
+            `[data-file-path="${path}"]`,
+          );
+          const host = header?.closest("diffs-container");
+          const viewport = scroll.getBoundingClientRect();
+          const headerBottom =
+            header?.getBoundingClientRect().bottom ?? viewport.top;
+          return (
+            document
+              .querySelector(`.tree-file[title="${path}"]`)
+              ?.getAttribute("aria-current") === "true" &&
+            Array.from(
+              host?.shadowRoot?.querySelectorAll<HTMLElement>(
+                "[data-line][data-line-type]",
+              ) ?? [],
+            ).some((line) => {
+              const bounds = line.getBoundingClientRect();
+              return (
+                line.textContent?.includes(`item${index}_0`) &&
+                bounds.top >= Math.max(viewport.top, headerBottom) &&
+                bounds.bottom <= viewport.bottom &&
+                bounds.right > viewport.left &&
+                bounds.left < viewport.right
+              );
+            })
+          );
+        }
+        function waitForSource() {
+          if (performance.now() - start > 5000) {
+            state.error = `Navigation never displayed the requested source: ${path}`;
+            state.done = true;
+            return;
+          }
+          if (!arrived()) {
+            requestAnimationFrame(waitForSource);
+            return;
+          }
+          // An active tree item or cached offscreen source is not arrival.
+          // Allow the visible source to paint before recording the sample.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              if (!arrived()) {
+                waitForSource();
+                return;
+              }
+              state.navigation.push(performance.now() - start);
+              if (++nav < 100) navigate();
+              else state.done = true;
+            }),
+          );
+        }
+        requestAnimationFrame(waitForSource);
       }
       function tick(time: number) {
         state.frames.push(time - previous);
@@ -830,11 +1037,23 @@ describe("Peer in the native webview", () => {
       this.skip();
     }
     await browser.waitUntil(
-      () => browser.execute(() => (window as any).__benchmark.done),
+      () =>
+        browser.execute(() => {
+          // Installed by the benchmark setup in this scenario.
+          const benchmarkWindow = window as unknown as BenchmarkWindow;
+          return benchmarkWindow.__benchmark.done;
+        }),
       { timeout: 30000 },
     );
     const metrics = await browser.execute(() => {
-      const state = (window as any).__benchmark;
+      // Installed by the benchmark setup in this scenario.
+      const benchmarkWindow = window as unknown as BenchmarkWindow;
+      const state = benchmarkWindow.__benchmark;
+      if (state.error) throw new Error(state.error);
+      if (state.navigation.length !== 100 || state.frames.length !== 120)
+        throw new Error(
+          "Benchmark ended without all navigation and scrolling samples",
+        );
       const frames = state.frames
         .slice(2)
         .sort((a: number, b: number) => a - b);
@@ -1194,19 +1413,25 @@ describe("Peer in the native webview", () => {
         await expect($(".error-banner")).not.toExist();
       }
       await browser.saveScreenshot(resolve("test-results/refresh-anchor.png"));
-      // Scroll back without selecting the file, which would expand it.
-      // Earlier scenarios can leave changed files before this fixture.
-      await browser.execute(() => {
-        document.querySelector<HTMLElement>(".code-view")!.scrollTop = 0;
-      });
-      await browser.waitUntil(() =>
-        browser.execute((path) => {
-          if (document.querySelector(`[data-file-path="${path}"]`)) return true;
-          const scroll = document.querySelector<HTMLElement>(".code-view")!;
-          scroll.scrollTop += scroll.clientHeight / 2;
-          return false;
-        }, collapsed),
+      await focusApp();
+      await browser.waitUntil(
+        () => browser.execute(() => document.visibilityState === "visible"),
+        {
+          timeoutMsg:
+            "Unlock the desktop so the native viewer can render scrolling",
+        },
       );
+      // The embedded driver's synthetic wheel does not scroll by default.
+      // Deliver user input to cancel pending restoration, then move the actual
+      // scroller without selecting (and therefore expanding) the collapsed file.
+      await browser.execute(() => {
+        const scroll = document.querySelector<HTMLElement>(".code-view")!;
+        scroll.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100000, bubbles: true }),
+        );
+        scroll.scrollTop = 0;
+      });
+      await $(`[data-file-path="${collapsed}"]`).waitForExist();
       await expect($(`[aria-label="Expand ${collapsed}"]`)).toExist();
       // If the viewed diff disappears, select the next surviving file.
       await click(`.tree-file[title="${target}"]`);

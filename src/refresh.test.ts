@@ -27,7 +27,14 @@ const state: ViewportState = {
   collapsed: ["a"],
   expanded: { b: [{ hunk: 0, direction: "up" }] },
   symbol: { id: "b", side: "old", position: { line: 19, character: 3 } },
-  selection: null,
+  selection: {
+    id: "b",
+    side: "old",
+    range: {
+      start: { line: 19, character: 3 },
+      end: { line: 20, character: 7 },
+    },
+  },
   selectedLine: { id: "b", line: 20, side: "old" },
 };
 const previous = [file("a"), file("b"), file("c")];
@@ -47,7 +54,19 @@ describe("refresh viewport", () => {
       ...state.selectedLine,
       id: "renamed",
     });
-    expect(result.symbol?.side).toBe("old");
+    expect(result.symbol).toEqual({
+      id: "renamed",
+      side: "old",
+      position: { line: 19, character: 3 },
+    });
+    expect(result.selection).toEqual({
+      id: "renamed",
+      side: "old",
+      range: {
+        start: { line: 19, character: 3 },
+        end: { line: 20, character: 7 },
+      },
+    });
     expect(result.collapsed).toEqual([]);
   });
   it("falls forward, then backward, when the viewed diff disappears", () => {
@@ -57,6 +76,8 @@ describe("refresh viewport", () => {
     const result = refreshedViewport(state, previous, [file("a")])!;
     expect(result.anchor).toEqual({ id: "a", offset: 0 });
     expect(result.selectedLine).toBeNull();
+    expect(result.symbol).toBeNull();
+    expect(result.selection).toBeNull();
     expect(result.expanded).toEqual({});
     expect(refreshedViewport(state, previous, [])).toBeNull();
   });

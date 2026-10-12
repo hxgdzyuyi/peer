@@ -134,13 +134,15 @@ cargo test -p peer-core --test navigation real_language_servers -- --ignored
 cargo test -p peer-core --test navigation real_python_server -- --ignored
 npm run build:test-app
 npm run test:desktop
+# Run a single native scenario with its own prerequisites:
+npm run test:desktop -- --spec tests/desktop/repositories.spec.ts --mochaOpts.grep "updates a moved repository"
 # macOS memory workload (isolated app; includes compressed WebKit memory)
 PEER_MEMORY_TEST=1 npm run test:desktop
 ```
 
-Desktop tests launch the actual app through WebdriverIO's embedded Tauri driver. They create a temporary Git repository and isolated data store. Test plugins and the frontend bridge are feature/environment gated and excluded from normal packages. Logs, screenshots, and performance measurements go into `test-results/`.
+Desktop tests launch the actual app through WebdriverIO's embedded Tauri driver. They create temporary Git repositories and an isolated data store; each scenario resets its preferences/session and supplies its own review state so it can run independently. Test plugins and the frontend bridge are feature/environment gated and excluded from normal packages. Logs, screenshots, and performance measurements go into `test-results/`.
 
-The benchmark uses 100 changed TypeScript files and 10,000 changed lines. Targets: warm navigation below 100 ms and p95 scrolling frame intervals below 33 ms. Results include the reference CPU/OS. Files above 1 MiB or 20,000 lines require explicit loading; highlighting is bounded on long lines. A 64 MiB inspection limit protects the viewer from very large payloads.
+The benchmark uses 100 changed TypeScript files and 10,000 changed lines. Warm navigation measures from the file click until that file is active and its expected source is visible in the viewport, followed by paint; missing targets or navigation that never arrives fail even in report mode. Targets: warm navigation below 100 ms and p95 scrolling frame intervals below 33 ms. Results include the reference CPU/OS. Files above 1 MiB or 20,000 lines require explicit loading; highlighting is bounded on long lines. A 64 MiB inspection limit protects the viewer from very large payloads.
 
 Local desktop runs enforce those timing targets by default and require an active, unlocked desktop. GitHub-hosted CI sets `PEER_PERFORMANCE_MODE=report`: it still measures performance, records whether the targets were exceeded in `performance.json`, and adds the measurements to the job summary. Functional failures still fail CI. Use `PEER_PERFORMANCE_MODE=enforce` on a controlled benchmark machine to enforce the same targets; `report` also permits functional checks when the host suspends animation frames, explicitly recording performance as unmeasured. Timing targets are not adjusted to make a slower run pass.
 
@@ -156,4 +158,4 @@ caffeinate -d -i -u -t 1200 act push \
 
 Keep the desktop unlocked and avoid mouse/keyboard input throughout the run. `caffeinate` prevents idle sleep but cannot unlock an already locked session. This runs the workflow on your Mac, not in a GitHub VM or Docker container; its setup actions install/select host Rust and Node toolchains. Omit `--bind`: the native executor needs checkout to copy the working tree into its workspace. The local artifact server retains `desktop-test-results` under the specified directory.
 
-CI runs Rust core tests on macOS, Windows, and Linux, frontend tests/builds, and the macOS desktop suite. Windows/Linux desktop releases remain future work; a CI configuration is not evidence of a completed remote run.
+CI runs Rust core tests on macOS, Windows, and Linux, frontend tests/builds, and the macOS desktop suite. A dedicated Ubuntu job installs pinned Go/gopls, Node/TypeScript/typescript-language-server, Rust/rust-analyzer, and Python/Pyright toolchains and explicitly runs both real-server navigation tests; they remain opt-in for the ordinary local core suite. The pins live in `.github/workflows/ci.yml`. Windows/Linux desktop releases remain future work; a CI configuration is not evidence of a completed remote run.

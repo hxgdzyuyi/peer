@@ -2,6 +2,27 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Saved-feedback preservation regression — 2026-10-12 JST
+
+The font-resize native scenario now creates a saved comment before capturing its queue snapshot, while retaining its separate unsaved-draft assertions. The focused scenario passed. A temporary fault injection that deletes comments on font-size changes failed at the queue-equality assertion, demonstrating that this case now detects saved-feedback loss; the probe was removed. The full suite was not rerun for this fixture-only follow-up.
+
+## Test isolation and regression coverage — 2026-10-12 JST
+
+Desktop scenarios now reset their preferences/session and create their own review prerequisites. Repository scenarios use fresh Git repositories per case, with permanent coverage for rejected and cancelled repairs, successful relocation, inactive removal, active removal, reload persistence, and retained reviews and files. Unit regressions assert literal saved sidebar widths, preserve non-null selections through renames, clear removed selections, and exercise overlapping parser requests and worker-crash recovery. Rejected relocation also preserves seeded comments and Reviewed fingerprints in memory and after restart.
+
+`npm test` passed all 26 frontend/harness tests. `cargo test -p peer-core --locked` passed 36 tests, with the two real-server tests ignored by default. Both real-server tests passed separately with Rust/rust-analyzer 1.99.0, Go 1.26.8/gopls 0.23.0, Node.js 22.14.0, TypeScript 5.9.3/typescript-language-server 5.0.1, and Python 3.12.8/Pyright 1.1.407. The dedicated Ubuntu CI job pins these toolchains and invokes both tests explicitly; its workflow passed actionlint 1.7.12. The hosted job has not yet run.
+
+Twelve selected desktop scenarios passed in separate fresh invocations: line-anchor review, outdated feedback, refresh anchoring, warm navigation, commit restoration, repository selection restoration, relocation, inactive removal, active removal, full-source search, pointer resizing, and keyboard resizing. Reload setup focuses the replacement document before native pointer interactions. Verification resumed on an unlocked desktop with `caffeinate` after an earlier locked-session attempt suspended rendering.
+
+Warm-navigation timing now ends only after the target file is active, its expected source is visible in the viewport, and a paint completes. A throwaway fault injection suppressed the click on `src/module-011.ts`; the benchmark failed with `Navigation never displayed the requested source` even in performance report mode. The probe was removed. Timing targets remain unchanged.
+
+The final full native WKWebView run passed all 37 tests across five spec files, with no skips and performance enforcement enabled. The test app built successfully with `CARGO_TARGET_DIR=/tmp/peer-repository-lifecycle-target`. Screenshots of the repaired repository and empty view after active removal were inspected. The optional memory workload was not rerun.
+
+| Measurement              | Recorded p95 |   Target |
+| ------------------------ | -----------: | -------: |
+| Scrolling frame interval |        20 ms |  < 33 ms |
+| Warm file navigation     |        67 ms | < 100 ms |
+
 ## Repository location repair and removal — 2026-10-09 JST
 
 The repository dropdown now offers explicit Update location and Remove from list actions, including for the active repository and missing paths. Relocation validates the new Git root, migrates the saved session, and retains stable review-queue identity across renames and restarts. Reusing a moved repository's former directory receives a distinct identity. Removal forgets the list entry without deleting files or review data.

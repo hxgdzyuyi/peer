@@ -5,12 +5,16 @@ describe("sidebar layout", () => {
   it("fits wide saved panels into a narrow window without overwriting the preference", () => {
     const preferred = { files: 600, feedback: 640 };
     const fitted = fitSidebars(preferred, 950, true);
+    expect(preferred).toEqual({ files: 600, feedback: 640 });
     expect(fitted.files).toBeGreaterThanOrEqual(180);
     expect(fitted.feedback).toBeGreaterThanOrEqual(260);
     expect(950 - fitted.files - fitted.feedback).toBeGreaterThanOrEqual(
       minimumSourceWidth,
     );
-    expect(fitSidebars(preferred, 1800, true)).toEqual(preferred);
+    expect(fitSidebars(preferred, 1800, true)).toEqual({
+      files: 600,
+      feedback: 640,
+    });
   });
   it("reserves no space for hidden feedback and preserves its saved width", () => {
     expect(fitSidebars({ files: 600, feedback: 640 }, 950, false)).toEqual({

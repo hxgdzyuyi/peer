@@ -1,26 +1,196 @@
 import { browser, $, $$, expect } from "@wdio/globals";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { defaultComparison } from "../../src/types";
+import type { Preferences } from "../../src/types";
+import type * as TauriCore from "@tauri-apps/api/core";
+import type * as TauriWindow from "@tauri-apps/api/window";
+
+// withGlobalTauri exposes these native APIs inside each executed webview callback.
+type NativeWindow = Window & {
+  __TAURI__: { core: typeof TauriCore; window: typeof TauriWindow };
+};
 
 const workspace = realpathSync(
   mkdtempSync(join(tmpdir(), "peer-repositories-")),
 );
-const first = join(workspace, "first", "shared");
-const second = join(workspace, "second", "shared");
-const missing = join(workspace, "missing");
+let first: string;
+let second: string;
+let missing: string;
 const trigger = '[aria-label="Switch repository"]';
 const menu = '[role="menu"][aria-label="Repositories"]';
-let originalPreferences: unknown;
+let originalPreferences: Preferences;
 
-async function waitForRepository(path: string) {
+async function savedPreferences(): Promise<Preferences> {
+  return browser.execute(async () => {
+    const nativeWindow = window as unknown as NativeWindow;
+    return (
+      await nativeWindow.__TAURI__.core.invoke<{ preferences: Preferences }>(
+        "bootstrap",
+      )
+    ).preferences;
+  });
+}
+
+async function reloadApp(preferences: Preferences | null = null) {
+  const loadedAt = await browser.execute(async (preferences) => {
+    if (preferences) {
+      const nativeWindow = window as unknown as NativeWindow;
+      await nativeWindow.__TAURI__.core.invoke("save_preferences", {
+        preferences,
+      });
+    }
+    return performance.timeOrigin;
+  }, preferences);
+  await browser.refresh();
+  await browser.waitUntil(() =>
+    browser.execute(
+      (before) =>
+        performance.timeOrigin !== before && !!document.querySelector(".app"),
+      loadedAt,
+    ),
+  );
+}
+
+async function switchView(view: "Code" | "Changes") {
+  await $('[aria-label="Refresh repository"]').waitForEnabled();
+  await $(`button=${view}`).click();
   await browser.waitUntil(
     async () =>
-      (await $(trigger).getAttribute("title")) === path &&
-      (await $(trigger).isEnabled()),
+      (await $(".view-switch button.active").getText()) === view &&
+      (await $('[aria-label="Refresh repository"]').isEnabled()) &&
+      !(await $(".refresh-overlay").isExisting()),
   );
+}
+
+async function submitForm(selector: string) {
+  await $(`${selector} .primary-button`).waitForEnabled();
+  // The embedded driver's synthetic click may omit a submit button's default
+  // action after reload. Submit the actual form, retaining its React handler.
+  await browser.execute((selector) => {
+    const form = document.querySelector<HTMLFormElement>(selector)!;
+    form.requestSubmit(
+      form.querySelector<HTMLButtonElement>(".primary-button")!,
+    );
+  }, selector);
+}
+
+const reviewBody = "Review survives repository lifecycle changes";
+
+async function seedReviewAndSession() {
+  await switchView("Changes");
+  await $('[aria-label="Comment on file first.ts"]').click();
+  await $('[aria-label="Comment text"]').setValue(reviewBody);
+  await submitForm(".comment-composer");
+  await expect($(".comment-card")).toHaveText(
+    expect.stringContaining(reviewBody),
+  );
+  await $('[data-file-path="first.ts"] .review-check input').click();
+  await expect($(".statusbar")).toHaveText(
+    expect.stringContaining("1 reviewed"),
+  );
+  await switchView("Code");
+  await $('.tree-file[title="second.ts"]').click();
+  await $('[data-file-path="second.ts"]').waitForExist();
+  const top = await browser.execute(() => {
+    const view = document.querySelector<HTMLElement>(".code-view")!;
+    view.scrollTop = 900;
+    view.dispatchEvent(new Event("scroll"));
+    return view.scrollTop;
+  });
+  expect(top).toBeGreaterThan(0);
+  await browser.waitUntil(async () => {
+    const session = (await savedPreferences()).sessions[first];
+    return (
+      session?.comparison.view === "code" &&
+      session.selectedPath === "second.ts" &&
+      Math.abs(session.scrollTop - top) < 3
+    );
+  });
+  return top;
+}
+
+async function expectSession(top: number) {
+  await expect($(".view-switch button.active")).toHaveText("Code");
+  await expect($('.tree-file[title="second.ts"]')).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await browser.waitUntil(
+    async () =>
+      Math.abs(
+        (await browser.execute(
+          () => document.querySelector(".code-view")!.scrollTop,
+        )) - top,
+      ) < 3,
+  );
+}
+
+async function expectReview() {
+  await switchView("Changes");
+  await expect($(".comment-card")).toHaveText(
+    expect.stringContaining(reviewBody),
+  );
+  await expect(
+    $('[data-file-path="first.ts"] .review-check input'),
+  ).toBeChecked();
+  await expect($(".statusbar")).toHaveText(
+    expect.stringContaining("1 reviewed"),
+  );
+}
+
+async function updateLocation(path: string) {
+  await $(trigger).click();
+  await $(`[aria-label="Update location for ${path}"]`).click();
+  await $("#repository-location").waitForEnabled();
+}
+
+async function removeFromList(path: string) {
+  await $(trigger).click();
+  await $(`[aria-label="Remove ${path} from list"]`).click();
+  await browser.waitUntil(
+    async () => !(await savedPreferences()).recentRepositories.includes(path),
+  );
+}
+
+async function reopenRemoved(path: string) {
+  // OS directory pickers are outside this driver's DOM. Reopen through the real
+  // native command, then bootstrap the UI; removal itself always uses the menu.
+  await browser.execute(async (path) => {
+    const nativeWindow = window as unknown as NativeWindow;
+    await nativeWindow.__TAURI__.core.invoke("open_repository", {
+      path,
+      comparison: null,
+    });
+  }, path);
+  await reloadApp();
+  await waitForRepository(path);
+}
+
+function expectRepositoryFiles(path: string) {
+  expect(existsSync(join(path, ".git"))).toBe(true);
+  expect(readFileSync(join(path, "first.ts"), "utf8")).toBe(
+    "export const changed = true;\n",
+  );
+  expect(readFileSync(join(path, "second.ts"), "utf8")).toContain(
+    "export const second159 = 159;",
+  );
+}
+
+async function waitForRepository(path: string) {
+  await expect($(trigger)).toHaveAttribute("title", path, { wait: 20000 });
+  await $(trigger).waitForEnabled();
 }
 async function switchTo(path: string) {
   await $(trigger).click();
@@ -40,6 +210,14 @@ async function menuKey(key: string) {
 }
 describe("Repository switcher", () => {
   before(async () => {
+    await $('[aria-label="Refresh repository"]').waitForEnabled();
+    originalPreferences = await savedPreferences();
+  });
+  beforeEach(async () => {
+    const scenario = mkdtempSync(join(workspace, "scenario-"));
+    first = join(scenario, "first", "shared");
+    second = join(scenario, "second", "shared");
+    missing = join(scenario, "missing");
     for (const root of [first, second]) {
       mkdirSync(root, { recursive: true });
       const git = (...args: string[]) =>
@@ -59,46 +237,30 @@ describe("Repository switcher", () => {
       git("commit", "-m", "base");
       writeFileSync(join(root, "first.ts"), "export const changed = true;\n");
     }
-    originalPreferences = await browser.execute(
-      async () =>
-        (await (window as any).__TAURI__.core.invoke("bootstrap")).preferences,
-    );
-    await browser.execute(
-      async ({ first, second, missing, comparison }) => {
-        const api = (window as any).__TAURI__.core;
-        const { preferences } = await api.invoke("bootstrap");
-        await api.invoke("save_preferences", {
-          preferences: {
-            ...preferences,
-            lastRepository: first,
-            recentRepositories: [first, second, missing],
-            sessions: {
-              [first]: { comparison, selectedPath: "first.ts", scrollTop: 0 },
-            },
-          },
-        });
-        setTimeout(() => location.reload(), 100);
+    await reloadApp({
+      ...originalPreferences,
+      lastRepository: first,
+      recentRepositories: [first, second, missing],
+      sessions: {
+        [first]: {
+          comparison: { ...defaultComparison, view: "code" },
+          selectedPath: "first.ts",
+          scrollTop: 0,
+        },
       },
-      {
-        first,
-        second,
-        missing,
-        comparison: { ...defaultComparison, view: "code" },
-      },
-    );
+    });
     await waitForRepository(first);
-  });
-  beforeEach(async () => {
     await browser.execute(async () => {
-      await (window as any).__TAURI__.window.getCurrentWindow().setFocus();
+      const nativeWindow = window as unknown as NativeWindow;
+      await nativeWindow.__TAURI__.window.getCurrentWindow().setFocus();
     });
   });
   after(async () => {
-    await browser.execute(async (preferences) => {
-      await (window as any).__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-    }, originalPreferences);
+    await reloadApp(originalPreferences);
+    if (originalPreferences.lastRepository)
+      await waitForRepository(originalPreferences.lastRepository);
+    else await $(".welcome-open").waitForEnabled();
+    rmSync(workspace, { recursive: true, force: true });
   });
 
   it("distinguishes matching names and supports keyboard navigation and dismissal", async () => {
@@ -170,7 +332,7 @@ describe("Repository switcher", () => {
     await expect($('[aria-label="Comment text"]')).toHaveValue(
       "Draft retained across repositories",
     );
-    await $("button=Add comment").click();
+    await submitForm(".comment-composer");
     await expect($(".comment-card")).toHaveText(
       expect.stringContaining("Draft retained across repositories"),
     );
@@ -187,6 +349,14 @@ describe("Repository switcher", () => {
   });
 
   it("remembers the chosen repository after reload", async () => {
+    // This scenario owns its starting session; it must also pass with --grep.
+    await $('.tree-file[title="second.ts"]').click();
+    await $('[data-file-path="second.ts"]').waitForExist();
+    await browser.waitUntil(
+      async () =>
+        (await savedPreferences()).sessions[first]?.selectedPath ===
+        "second.ts",
+    );
     await switchTo(second);
     await $(trigger).click();
     await expect($(`${menu} [aria-checked="true"]`)).toHaveAttribute(
@@ -195,18 +365,14 @@ describe("Repository switcher", () => {
     );
     await expect($(`[data-repository-path="${first}"]`)).toExist();
     await menuKey("Escape");
-    await browser.waitUntil(async () =>
-      browser.execute(async (path) => {
-        const { preferences } = await (window as any).__TAURI__.core.invoke(
-          "bootstrap",
-        );
-        return (
-          preferences.lastRepository === path &&
-          preferences.recentRepositories.includes(path)
-        );
-      }, second),
-    );
-    await browser.execute(() => location.reload());
+    await browser.waitUntil(async () => {
+      const preferences = await savedPreferences();
+      return (
+        preferences.lastRepository === second &&
+        preferences.recentRepositories.includes(second)
+      );
+    });
+    await reloadApp();
     await waitForRepository(second);
     await switchTo(first);
     await expect($(".view-switch button.active")).toHaveText("Code");
@@ -214,5 +380,110 @@ describe("Repository switcher", () => {
       "aria-current",
       "true",
     );
+  });
+
+  it("updates a moved repository location without losing reviews or its session", async () => {
+    const top = await seedReviewAndSession();
+    const before = await savedPreferences();
+    const moved = join(workspace, "renamed");
+    renameSync(first, moved);
+
+    await updateLocation(first);
+    await $("#repository-location").setValue(missing);
+    await submitForm(".repository-location");
+    await expect($(".repository-location [role=alert]")).toBeDisplayed();
+    await $("#repository-location").waitForEnabled();
+    await expect($(trigger)).toHaveAttribute("title", first);
+    const rejected = await savedPreferences();
+    expect(rejected.lastRepository).toBe(first);
+    expect(rejected.recentRepositories).toEqual(before.recentRepositories);
+    expect(rejected.sessions[first]).toEqual(before.sessions[first]);
+
+    await $("#repository-location").setValue(moved);
+    await $('.repository-location-actions button[type="button"]').click();
+    await expect($(".repository-location")).not.toExist();
+    await expectSession(top);
+    const cancelled = await savedPreferences();
+    expect(cancelled.lastRepository).toBe(first);
+    expect(cancelled.recentRepositories).toEqual(before.recentRepositories);
+    expect(cancelled.sessions[first]).toEqual(before.sessions[first]);
+
+    await updateLocation(first);
+    await $("#repository-location").setValue(moved);
+    await submitForm(".repository-location");
+    await expect($(".repository-location")).not.toExist();
+    await waitForRepository(moved);
+    await expectSession(top);
+    await browser.waitUntil(async () => {
+      const preferences = await savedPreferences();
+      return (
+        preferences.lastRepository === moved &&
+        !preferences.recentRepositories.includes(first) &&
+        preferences.sessions[moved]?.selectedPath === "second.ts" &&
+        Math.abs(preferences.sessions[moved].scrollTop - top) < 3
+      );
+    });
+    await reloadApp();
+    await waitForRepository(moved);
+    await expectSession(top);
+    await $(trigger).click();
+    await expect($(`[data-repository-path="${first}"]`)).not.toExist();
+    await expect($(`[data-repository-path="${moved}"] strong`)).toHaveText(
+      "renamed",
+    );
+    await menuKey("Escape");
+    await expectReview();
+    expectRepositoryFiles(moved);
+    expect(existsSync(first)).toBe(false);
+    await browser.saveScreenshot(
+      resolve("test-results/repository-repaired.png"),
+    );
+  });
+
+  it("removes an inactive repository from the list but retains its files and reviews", async () => {
+    const top = await seedReviewAndSession();
+    await switchTo(second);
+    await removeFromList(first);
+    await waitForRepository(second);
+    await expect($(".view-switch button.active")).toHaveText("Changes");
+    await reloadApp();
+    await waitForRepository(second);
+    await $(trigger).click();
+    await expect($(`[data-repository-path="${first}"]`)).not.toExist();
+    await expect($(`${menu} [aria-checked="true"]`)).toHaveAttribute(
+      "data-repository-path",
+      second,
+    );
+    await menuKey("Escape");
+    expectRepositoryFiles(first);
+    await reopenRemoved(first);
+    await expectSession(top);
+    await expectReview();
+  });
+
+  it("removes the active repository and keeps the empty view after reload without deleting reviews", async () => {
+    const top = await seedReviewAndSession();
+    await removeFromList(first);
+    await $(".welcome-open").waitForEnabled();
+    await expect($(".code-view")).not.toExist();
+    await expect($(".comment-card")).not.toExist();
+    await expect($(".tree-file")).not.toExist();
+    expect((await savedPreferences()).lastRepository).toBeNull();
+    await reloadApp();
+    await $(".welcome-open").waitForEnabled();
+    await expect($(".code-view")).not.toExist();
+    await expect($(".tree-file")).not.toExist();
+    await $(trigger).click();
+    await expect($(`[data-repository-path="${first}"]`)).not.toExist();
+    await expect($(`[data-repository-path="${second}"]`)).toExist();
+    await expect($(`${menu} [aria-checked="true"]`)).not.toExist();
+    await menuKey("Escape");
+    await browser.saveScreenshot(
+      resolve("test-results/repository-removed.png"),
+    );
+    expectRepositoryFiles(first);
+    await reopenRemoved(first);
+    await expectSession(top);
+    await expectReview();
   });
 });

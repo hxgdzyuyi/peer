@@ -155,10 +155,34 @@ async fn invalid_relocation_does_not_replace_saved_repositories_or_reviews() {
     let other = fixture();
     let store = tempfile::tempdir().unwrap();
     let app = Inspector::new(store.path()).unwrap();
+    fs::write(repo.path().join("hello.ts"), "Keep this change\n").unwrap();
     let original = app
         .open_repository(repo.path().to_str().unwrap(), None)
         .await
         .unwrap();
+    let file = original
+        .files
+        .iter()
+        .find(|file| file.path == "hello.ts")
+        .unwrap();
+    let content = app.read_file(&original.id, &file.id, false).await.unwrap();
+    let comment = app
+        .add_comment(NewComment {
+            snapshot_id: original.id.clone(),
+            file_id: file.id.clone(),
+            fingerprint: content.fingerprint.clone(),
+            body: "Keep this feedback after a failed relocation".into(),
+            side: Some("new".into()),
+            line: Some(1),
+        })
+        .await
+        .unwrap();
+    app.set_reviewed(&original.id, &file.id, &content.fingerprint, true)
+        .await
+        .unwrap();
+    let expected_queue = serde_json::to_value(app.queue(&original.id).await.unwrap()).unwrap();
+    assert_eq!(expected_queue["comments"][0]["id"], comment.id);
+    assert_eq!(expected_queue["reviewed"]["hello.ts"], content.fingerprint);
     let other = app
         .open_repository(other.path().to_str().unwrap(), None)
         .await
@@ -168,14 +192,39 @@ async fn invalid_relocation_does_not_replace_saved_repositories_or_reviews() {
     for path in [
         invalid.path().join("missing"),
         invalid.path().to_path_buf(),
-        other.repository.root.into(),
+        other.repository.root.clone().into(),
     ] {
         assert!(app
             .relocate_repository(&original.repository.root, path.to_str().unwrap())
             .await
             .is_err());
         assert_eq!(fs::read(store.path().join("state.json")).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(app.queue(&original.id).await.unwrap()).unwrap(),
+            expected_queue
+        );
+        assert_eq!(
+            app.read_file(&original.id, &file.id, false)
+                .await
+                .unwrap()
+                .new_content,
+            content.new_content
+        );
+        assert!(app.queue(&other.id).await.unwrap().comments.is_empty());
     }
+    drop(app);
+    let restarted = Inspector::new(store.path()).unwrap();
+    assert_eq!(fs::read(store.path().join("state.json")).unwrap(), before);
+    let reopened = restarted
+        .open_repository(&original.repository.root, Some(original.comparison.clone()))
+        .await
+        .unwrap();
+    assert_eq!(reopened.repository.id, original.repository.id);
+    assert_eq!(reopened.queue_id, original.queue_id);
+    assert_eq!(
+        serde_json::to_value(restarted.queue(&reopened.id).await.unwrap()).unwrap(),
+        expected_queue
+    );
 }
 
 #[cfg(unix)]
