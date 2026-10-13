@@ -397,6 +397,127 @@ async fn utf16_renames_and_missing_servers() {
     );
 }
 
+// Unix launchers exercise real exec/PATH lookup; Windows uses a different process model.
+#[cfg(unix)]
+#[tokio::test]
+async fn configured_server_runtime_path_is_authoritative_under_finder_path() {
+    use std::os::unix::{fs::symlink, fs::PermissionsExt};
+
+    const CHILD_INSTALL: &str = "PEER_NAVIGATION_PATH_TEST_INSTALL";
+    const FINDER_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+    const RUNTIME: &str = "peer-navigation-test-runtime";
+
+    let install = match std::env::var_os(CHILD_INSTALL) {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            // Resolve the suite's Node prerequisite before isolating the child.
+            let node = Command::new("node")
+                .args(["-p", "process.execPath"])
+                .output()
+                .unwrap();
+            assert!(
+                node.status.success(),
+                "{}",
+                String::from_utf8_lossy(&node.stderr)
+            );
+            let node = String::from_utf8(node.stdout).unwrap();
+            let temporary = tempfile::tempdir().unwrap();
+            let install = temporary.path().join("language server installation");
+            let runtime = install.join("runtime");
+            fs::create_dir_all(&runtime).unwrap();
+            symlink(node.trim(), runtime.join(RUNTIME)).unwrap();
+            // Like a real server launcher, this must find its runtime through PATH.
+            // Its basename deliberately collides with the inherited /usr/bin/env.
+            let launcher = install.join("env");
+            fs::write(&launcher, "#!/bin/sh\nexec \"$@\"\n").unwrap();
+            fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+
+            // Re-enter only this test with a pristine Finder-style environment.
+            // Never change the parallel test runner's process-global environment.
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "configured_server_runtime_path_is_authoritative_under_finder_path",
+                    "--nocapture",
+                ])
+                .env_clear()
+                .env("PATH", FINDER_PATH)
+                .env("HOME", temporary.path())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env(CHILD_INSTALL, &install)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated navigation test failed:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+    };
+
+    assert_eq!(std::env::var("PATH").unwrap(), FINDER_PATH);
+    let (repo, _store, app) = fixture();
+    let mut preferences = app.store.read().unwrap().preferences;
+    let server = &mut preferences.language_servers[0];
+    server.executable = install.join("env").to_str().unwrap().into();
+    server.args.insert(0, RUNTIME.into());
+    server.env.insert(
+        "PATH".into(),
+        install.join("runtime").to_str().unwrap().into(),
+    );
+    app.save_preferences(preferences.clone()).unwrap();
+    let snapshot = app
+        .open_repository(repo.path().to_str().unwrap(), Some(Comparison::default()))
+        .await
+        .unwrap();
+    let definition = app
+        .navigate_symbol(request(&snapshot, "new", "call.ts", 0, 1))
+        .await
+        .unwrap();
+    assert_eq!(definition.kind, "definitions");
+    assert_eq!(definition.locations.len(), 1);
+    assert_eq!(definition.locations[0].path, "defs.ts");
+    assert_eq!(
+        source(&app, &definition).await,
+        "export function asdf() { return 'base'; }\n"
+    );
+    app.shutdown_navigation().await;
+
+    // Neither the absolute launcher nor inherited system tools can supply the
+    // private runtime without the configured PATH.
+    preferences.language_servers[0].env.remove("PATH");
+    app.save_preferences(preferences.clone()).unwrap();
+    assert_eq!(
+        app.navigate_symbol(request(&snapshot, "new", "call.ts", 0, 1))
+            .await
+            .unwrap_err()
+            .code,
+        "serverError"
+    );
+    app.shutdown_navigation().await;
+
+    // An explicit PATH must also govern executable discovery. Falling back to
+    // inherited /usr/bin/env would successfully launch the same runtime/fixture
+    // with these arguments, hiding a missing configured server.
+    preferences.language_servers[0].executable = "env".into();
+    preferences.language_servers[0].env.insert(
+        "PATH".into(),
+        install.join("runtime").to_str().unwrap().into(),
+    );
+    app.save_preferences(preferences).unwrap();
+    assert_eq!(
+        app.navigate_symbol(request(&snapshot, "new", "call.ts", 0, 1))
+            .await
+            .unwrap_err()
+            .code,
+        "missingServer"
+    );
+    app.shutdown_navigation().await;
+}
+
 #[tokio::test]
 #[ignore = "requires gopls, typescript-language-server and rust-analyzer with their toolchains"]
 async fn real_language_servers_resolve_scopes_imports_methods_and_references() {
