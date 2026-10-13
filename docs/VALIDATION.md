@@ -2,6 +2,18 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Language-server content-modified race — 2026-10-13 JST
+
+[Run 38337629136](https://github.com/lantern24/peer/actions/runs/38337629136/job/115101206995) failed the real Go/TypeScript/JavaScript/Rust navigation scenario at the reference lookup with `serverError: content modified`, after its initial definition/indexing wait had succeeded. The stdio client discarded numeric LSP error codes and treated this response as a terminal server error.
+
+The client now handles LSP `ContentModified` (`-32801`) for definition and reference requests by retrying the same frozen-source query after 100 ms. All attempts share the original request timeout, use distinct request IDs, and remain cancellable. Other protocol errors are not retried, even when their message is also `content modified`. The real-server scenario's assertions and indexing wait were not relaxed.
+
+`cargo test -p peer-core --locked` passed all 39 regular tests, with two opt-in real-server tests ignored. New regressions cover definition-to-reference navigation across transient errors, a server that repeatedly invalidates analysis until the original deadline expires, and non-retryable internal/cancellation errors. Existing timeout, late-response, crash, and navigation-cancellation coverage also passed.
+
+Both real-server CI commands passed locally using Rust/rust-analyzer 1.99.0, Go 1.26.8/gopls 0.23.0, Node.js 22.14.0, TypeScript 5.9.3/typescript-language-server 5.0.1, and Pyright 1.1.407. A standalone Rust API smoke also resolved a cross-file definition and performed ten consecutive reference lookups through the returned document handle using real rust-analyzer; every reference pointed to the expected call position, and the fixture repository/index remained unchanged. The temporary smoke example was removed.
+
+`cargo clippy -p peer-core --all-targets --locked` completed with one warning in unchanged `repository.rs` about `chunks_exact`. Verification was local on macOS; the GitHub-hosted Ubuntu job has not been rerun with this fix.
+
 ## Desktop preference reset race — 2026-10-13 JST
 
 [Run 38335132911](https://github.com/lantern24/peer/actions/runs/38335132911/job/115093384829) passed all 37 scenarios but failed the repository-switcher teardown: the outgoing app's debounced preference save overwrote the restored fixture before reload. A native WKWebView probe reproduced the race by resetting `lastRepository` to null immediately after switching to Code, then observing the app's pending autosave restore the old path.

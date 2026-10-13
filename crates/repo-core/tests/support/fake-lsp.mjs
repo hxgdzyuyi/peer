@@ -5,6 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 let buffer = Buffer.alloc(0),
   root;
 const documents = new Map();
+const failures = new Map();
+const errorFixture = JSON.parse(process.env.PEER_FAKE_ERRORS ?? "null");
 const send = (value) => {
   const bytes = Buffer.from(JSON.stringify({ jsonrpc: "2.0", ...value }));
   // Exercise framing with headers and bodies delivered separately.
@@ -72,6 +74,18 @@ function receive(message) {
     method === "textDocument/definition" ||
     method === "textDocument/references"
   ) {
+    if (errorFixture) {
+      const key = `${method}:${params.textDocument.uri}`;
+      const count = failures.get(key) ?? 0;
+      if (count < errorFixture.count) {
+        failures.set(key, count + 1);
+        send({
+          id,
+          error: { code: errorFixture.code, message: "content modified" },
+        });
+        return;
+      }
+    }
     const text =
       documents.get(params.textDocument.uri) ??
       fs.readFileSync(fileURLToPath(params.textDocument.uri), "utf8");

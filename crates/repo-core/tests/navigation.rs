@@ -320,6 +320,53 @@ async fn cancellation_crash_capabilities_and_external_handles() {
 }
 
 #[tokio::test]
+async fn navigation_recovers_from_analysis_invalidated_by_opening_documents() {
+    let (repo, _store, app) = fixture();
+    let mut preferences = app.store.read().unwrap().preferences;
+    preferences.language_servers[0].env.insert(
+        "PEER_FAKE_ERRORS".into(),
+        serde_json::json!({"code": -32801, "count": 2}).to_string(),
+    );
+    app.save_preferences(preferences).unwrap();
+    let snapshot = app
+        .open_repository(repo.path().to_str().unwrap(), Some(Comparison::default()))
+        .await
+        .unwrap();
+    let definition = app
+        .navigate_symbol(request(&snapshot, "new", "call.ts", 0, 1))
+        .await
+        .unwrap();
+    assert_eq!(definition.kind, "definitions");
+    assert_eq!(definition.locations[0].path, "defs.ts");
+    assert_eq!(
+        source(&app, &definition).await,
+        "export function asdf() { return 'base'; }\n"
+    );
+
+    let position = definition.locations[0].range.start;
+    let references = app
+        .navigate_symbol(request(
+            &snapshot,
+            "new",
+            "defs.ts",
+            position.line,
+            position.character,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(references.kind, "references");
+    assert_eq!(references.locations.len(), 1);
+    assert_eq!(references.locations[0].path, "call.ts");
+    assert_eq!(
+        references.locations[0].range.start,
+        Position {
+            line: 0,
+            character: 0
+        }
+    );
+}
+
+#[tokio::test]
 async fn utf16_renames_and_missing_servers() {
     let (repo, _store, app) = fixture();
     git(repo.path(), &["mv", "defs.ts", "renamed.ts"]);

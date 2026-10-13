@@ -227,15 +227,9 @@ impl Client {
                     }
                 } else if let Some(id) = message["id"].as_u64() {
                     if let Some(sender) = inner.pending.lock().remove(&id) {
-                        let result = if let Some(error) = message.get("error") {
-                            Err(NavigationError::new(
-                                "serverError",
-                                error["message"].as_str().unwrap_or("Language-server error"),
-                            ))
-                        } else {
-                            Ok(message.get("result").cloned().unwrap_or(Value::Null))
-                        };
-                        let _ = sender.send(result);
+                        // Keep the protocol error code until the request decides
+                        // whether a frozen-source navigation query can be retried.
+                        let _ = sender.send(Ok(message));
                     }
                 }
             };
@@ -288,26 +282,66 @@ impl Client {
             .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))
     }
     pub async fn request(&self, method: &str, params: Value, timeout: Duration) -> Reply {
-        if !self.alive() {
-            return Err(NavigationError::new(
-                "serverError",
-                "Language server exited; retry to restart it",
-            ));
-        }
-        let id = self.inner.sequence.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = oneshot::channel();
-        self.inner.pending.lock().insert(id, sender);
-        let _pending = Pending {
-            inner: Arc::downgrade(&self.inner),
-            id,
-        };
-        self.inner
-            .sender
-            .send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
-            .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))?;
-        tokio::time::timeout(timeout, receiver).await
-            .map_err(|_| NavigationError::new("timeout", "Language server timed out. Check project dependencies or retry after indexing."))?
-            .map_err(|_| NavigationError::new("serverError", "Language server disconnected"))?
+        let retry_content_modified = matches!(
+            method,
+            "textDocument/definition" | "textDocument/references"
+        );
+        let mut message = json!({"jsonrpc":"2.0","method":method,"params":params});
+        tokio::time::timeout(timeout, async {
+            loop {
+                if !self.alive() {
+                    return Err(NavigationError::new(
+                        "serverError",
+                        "Language server exited; retry to restart it",
+                    ));
+                }
+                let id = self.inner.sequence.fetch_add(1, Ordering::Relaxed);
+                let (sender, receiver) = oneshot::channel();
+                self.inner.pending.lock().insert(id, sender);
+                let _pending = Pending {
+                    inner: Arc::downgrade(&self.inner),
+                    id,
+                };
+                message["id"] = json!(id);
+                self.inner
+                    .sender
+                    .send(if retry_content_modified {
+                        message.clone()
+                    } else {
+                        message.take()
+                    })
+                    .map_err(|_| {
+                        NavigationError::new("serverError", "Language server disconnected")
+                    })?;
+                let mut response = receiver.await.map_err(|_| {
+                    NavigationError::new("serverError", "Language server disconnected")
+                })??;
+                if let Some(error) = response.get("error") {
+                    // Opening a document or background indexing can invalidate
+                    // analysis even though Peer's snapshot source is unchanged.
+                    // Retry only LSP ContentModified, within the original deadline.
+                    if retry_content_modified && error["code"].as_i64() == Some(-32801) {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                    return Err(NavigationError::new(
+                        "serverError",
+                        error["message"].as_str().unwrap_or("Language-server error"),
+                    ));
+                }
+                return Ok(response
+                    .get_mut("result")
+                    .map(Value::take)
+                    .unwrap_or(Value::Null));
+            }
+        })
+        .await
+        .map_err(|_| {
+            NavigationError::new(
+                "timeout",
+                "Language server timed out. Check project dependencies or retry after indexing.",
+            )
+        })?
     }
     pub fn alive(&self) -> bool {
         !self.inner.failed.load(Ordering::SeqCst)
@@ -334,8 +368,7 @@ impl Client {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn a_timed_out_request_does_not_poison_the_connection() {
+    fn fixture() -> (tempfile::TempDir, LanguageServer, String) {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("call.ts");
         std::fs::write(&path, "hang();\nconst value = 1;\nvalue;\n").unwrap();
@@ -346,13 +379,67 @@ mod tests {
             .to_str()
             .unwrap()
             .into()];
+        let uri = uri(&path).unwrap();
+        (root, server, uri)
+    }
+
+    #[tokio::test]
+    async fn other_server_errors_are_not_retried() {
+        for code in [-32603, -32800, -32802] {
+            let (root, mut server, uri) = fixture();
+            server.env.insert(
+                "PEER_FAKE_ERRORS".into(),
+                json!({"code": code, "count": 1}).to_string(),
+            );
+            let client = Client::start(&server, root.path()).await.unwrap();
+            for method in ["textDocument/definition", "textDocument/references"] {
+                let error = client
+                    .request(
+                        method,
+                        json!({"textDocument":{"uri":uri},"position":{"line":2,"character":1}}),
+                        Duration::from_secs(2),
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, "serverError", "{method}: {code}");
+                assert_eq!(error.message, "content modified");
+            }
+            client.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn content_modified_retries_share_the_original_deadline() {
+        let (root, mut server, uri) = fixture();
+        server.env.insert(
+            "PEER_FAKE_ERRORS".into(),
+            json!({"code": -32801, "count": 1000}).to_string(),
+        );
+        let client = Client::start(&server, root.path()).await.unwrap();
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.request(
+                "textDocument/definition",
+                json!({"textDocument":{"uri":uri},"position":{"line":2,"character":1}}),
+                Duration::from_millis(250),
+            ),
+        )
+        .await
+        .expect("ContentModified retries extended the request deadline")
+        .unwrap_err();
+        assert_eq!(error.code, "timeout");
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_request_does_not_poison_the_connection() {
+        let (root, mut server, uri) = fixture();
         server.settings = json!({"fixture":{"enabled":true,"nested":{"value":42}}});
         server.env.insert(
             "PEER_FAKE_EXPECT_CONFIG".into(),
             json!([server.settings["fixture"]]).to_string(),
         );
         let client = Client::start(&server, root.path()).await.unwrap();
-        let uri = uri(&path).unwrap();
         let error = client
             .request(
                 "textDocument/definition",
