@@ -1,10 +1,20 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import "./styles.css";
 
-if (import.meta.env.VITE_DESKTOP_TEST === "1")
+if (import.meta.env.VITE_DESKTOP_TEST === "1") {
+  // A static import would install the test driver in production builds too.
   await import("@wdio/tauri-plugin");
+  // Apply fixture resets only after the outgoing app and its autosave timers
+  // are gone, before the replacement app reads preferences or starts saving.
+  const preferences = sessionStorage.getItem("peer:desktop-preferences");
+  if (preferences !== null) {
+    sessionStorage.removeItem("peer:desktop-preferences");
+    await invoke("save_preferences", { preferences: JSON.parse(preferences) });
+  }
+}
 
 class ErrorBoundary extends React.Component<
   React.PropsWithChildren,

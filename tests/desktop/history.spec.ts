@@ -1,10 +1,9 @@
 import { browser, $, $$, expect } from "@wdio/globals";
-import type * as Tauri from "@tauri-apps/api";
-type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { reloadApp } from "./app-fixture";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "peer-history-ui-")));
 const git = (...args: string[]) =>
@@ -77,27 +76,13 @@ describe("Branch commit history", () => {
     await browser.execute(async () =>
       (window as any).__TAURI__.window.getCurrentWindow().setFocus(),
     );
-    const loadedAt = await browser.execute(
-      async ({ root, preferences }) => {
-        // The desktop driver launches Tauri with its global API enabled.
-        const appWindow = window as unknown as TauriWindow;
-        await appWindow.__TAURI__.core.invoke("save_preferences", {
-          preferences: {
-            ...preferences,
-            diffLayout: "split",
-            lastRepository: root,
-            sessions: {},
-            recentRepositories: [root],
-          },
-        });
-        return performance.timeOrigin;
-      },
-      { root, preferences: originalPreferences },
-    );
-    await browser.refresh();
-    await browser.waitUntil(() =>
-      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
-    );
+    await reloadApp({
+      ...originalPreferences,
+      diffLayout: "split",
+      lastRepository: root,
+      sessions: {},
+      recentRepositories: [root],
+    });
     await browser.waitUntil(
       async () =>
         (await $('[aria-label="Switch repository"]').getAttribute("title")) ===
@@ -108,13 +93,7 @@ describe("Branch commit history", () => {
     );
   });
   after(async () => {
-    await browser.execute(
-      async (preferences) =>
-        (window as any).__TAURI__.core.invoke("save_preferences", {
-          preferences,
-        }),
-      originalPreferences,
-    );
+    await reloadApp(originalPreferences);
   });
 
   it("opens a paginated branch history with keyboard navigation and dismissal", async () => {

@@ -4,6 +4,7 @@ import type { Bootstrap, Preferences } from "../../src/types";
 type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { reloadApp } from "./app-fixture";
 
 const left = '[role="separator"][aria-label="Resize file navigation sidebar"]';
 const right = '[role="separator"][aria-label="Resize feedback sidebar"]';
@@ -70,23 +71,12 @@ describe("Resizable sidebars in the native webview", () => {
   beforeEach(async () => {
     await browser.releaseActions();
     await resizeWindow(1440);
-    const loadedAt = await browser.execute(async (preferences) => {
-      // The desktop driver launches Tauri with its global API enabled.
-      const appWindow = window as unknown as TauriWindow;
-      await appWindow.__TAURI__.core.invoke("save_preferences", {
-        preferences: {
-          ...preferences,
-          sessions: {},
-          // Non-default saved widths exercise restore/clamping in either scenario.
-          sidebarWidths: { files: 320, feedback: 400 },
-        },
-      });
-      return performance.timeOrigin;
-    }, originalPreferences);
-    await browser.refresh();
-    await browser.waitUntil(() =>
-      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
-    );
+    await reloadApp({
+      ...originalPreferences,
+      sessions: {},
+      // Non-default saved widths exercise restore/clamping in either scenario.
+      sidebarWidths: { files: 320, feedback: 400 },
+    });
     await browser.execute(async () => {
       // Focus the new document, not the page that was replaced by reload.
       const appWindow = window as unknown as TauriWindow;
@@ -119,13 +109,7 @@ describe("Resizable sidebars in the native webview", () => {
   after(async () => {
     await browser.releaseActions();
     await resizeWindow(1440);
-    await browser.execute(async (preferences) => {
-      // The desktop driver launches Tauri with its global API enabled.
-      const appWindow = window as unknown as TauriWindow;
-      await appWindow.__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-    }, originalPreferences);
+    await reloadApp(originalPreferences);
   });
 
   it("drags both sidebars, preserves feedback drafts, and remembers widths after reload", async () => {

@@ -2,6 +2,16 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## Desktop preference reset race — 2026-10-13 JST
+
+[Run 38335132911](https://github.com/lantern24/peer/actions/runs/38335132911/job/115093384829) passed all 37 scenarios but failed the repository-switcher teardown: the outgoing app's debounced preference save overwrote the restored fixture before reload. A native WKWebView probe reproduced the race by resetting `lastRepository` to null immediately after switching to Code, then observing the app's pending autosave restore the old path.
+
+All five desktop suites now stage fixture preferences in session storage and use a shared reload helper. Only the desktop-test build consumes that one-shot reset, through the real native `save_preferences` command before React mounts; the outgoing document can no longer overwrite the replacement app's fixture. Setup, teardown, and reopening removed repositories use this path. Ordinary reloads without a staged reset still exercise persisted application state.
+
+The same native probe verified the fix while deliberately allowing the outgoing Code autosave to finish after staging the reset and before refresh. The replacement document retained `lastRepository: null`, consumed the staged reset, and displayed the welcome screen; its screenshot was inspected. The temporary probe was removed. `npm test` passed all 26 tests. The native test app and production frontend both built successfully; the production JavaScript contains no fixture reset key or test-driver marker.
+
+The final full native run, `APP_BINARY=/tmp/peer-repository-lifecycle-target/debug/peer PEER_PERFORMANCE_MODE=report npm run test:desktop`, passed all 37 tests across all five spec files, including the repository teardown, with no skips. The test app was built with `CARGO_TARGET_DIR=/tmp/peer-repository-lifecycle-target`. This is local native verification; GitHub-hosted CI has not been rerun with the fix.
+
 ## Saved-feedback preservation regression — 2026-10-12 JST
 
 The font-resize native scenario now creates a saved comment before capturing its queue snapshot, while retaining its separate unsaved-draft assertions. The focused scenario passed. A temporary fault injection that deletes comments on font-size changes failed at the queue-equality assertion, demonstrating that this case now detects saved-feedback loss; the probe was removed. The full suite was not rerun for this fixture-only follow-up.

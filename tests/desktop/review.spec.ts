@@ -26,6 +26,7 @@ import {
   enforcePerformance,
   performanceMode,
 } from "./performance";
+import { reloadApp } from "./app-fixture";
 
 async function focusApp() {
   await browser.execute(async () => {
@@ -125,30 +126,22 @@ describe("Peer in the native webview", () => {
     const { queues } = JSON.parse(
       readFileSync(join(process.env.PEER_DATA_DIR!, "state.json"), "utf8"),
     );
-    const loadedAt = await browser.execute(
-      async ({ preferences, queueIds }) => {
-        // The desktop driver launches Tauri with its global API enabled.
-        const appWindow = window as unknown as TauriWindow;
-        const api = appWindow.__TAURI__.core;
-        for (const queueId of queueIds)
-          await api.invoke("delete_comments", { queueId, id: null });
-        await api.invoke("save_preferences", {
-          preferences: {
-            ...preferences,
-            sessions: {},
-            showWhitespace: false,
-            diffLayout: "unified",
-            codeFontSize: 12,
-          },
+    await browser.execute(async (queueIds) => {
+      // The desktop driver launches Tauri with its global API enabled.
+      const appWindow = window as unknown as TauriWindow;
+      for (const queueId of queueIds)
+        await appWindow.__TAURI__.core.invoke("delete_comments", {
+          queueId,
+          id: null,
         });
-        return performance.timeOrigin;
-      },
-      { preferences: originalPreferences, queueIds: Object.keys(queues) },
-    );
-    await browser.refresh();
-    await browser.waitUntil(() =>
-      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
-    );
+    }, Object.keys(queues));
+    await reloadApp({
+      ...originalPreferences,
+      sessions: {},
+      showWhitespace: false,
+      diffLayout: "unified",
+      codeFontSize: 12,
+    });
     await focusApp();
     await switchView("Changes");
     await click('.tree-file[title="src/module-000.ts"]');
@@ -208,13 +201,7 @@ describe("Peer in the native webview", () => {
     expect(errors).toEqual([]);
   });
   after(async () => {
-    await browser.execute(async (preferences) => {
-      // The desktop driver launches Tauri with its global API enabled.
-      const appWindow = window as unknown as TauriWindow;
-      await appWindow.__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-    }, originalPreferences);
+    await reloadApp(originalPreferences);
   });
   it("opens a real 100-file Git comparison and highlights offline", async () => {
     await $('[data-repository="benchmark-repo"]').waitForExist();

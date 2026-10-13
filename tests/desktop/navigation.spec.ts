@@ -1,11 +1,10 @@
 import { browser, $, expect } from "@wdio/globals";
-import type * as Tauri from "@tauri-apps/api";
 import type { Preferences } from "../../src/types";
-type TauriWindow = Window & { __TAURI__: typeof Tauri };
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { reloadApp } from "./app-fixture";
 
 let originalPreferences: any;
 let scenarioPreferences: Preferences;
@@ -207,18 +206,7 @@ describe("Version-aware navigation", () => {
     await browser.execute(async () => {
       await (window as any).__TAURI__.window.getCurrentWindow().setFocus();
     });
-    const loadedAt = await browser.execute(async (preferences) => {
-      // The desktop driver launches Tauri with its global API enabled.
-      const appWindow = window as unknown as TauriWindow;
-      await appWindow.__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-      return performance.timeOrigin;
-    }, scenarioPreferences);
-    await browser.refresh();
-    await browser.waitUntil(() =>
-      browser.execute((before) => performance.timeOrigin !== before, loadedAt),
-    );
+    await reloadApp(scenarioPreferences);
     await switchView("Changes");
     await $('.tree-file[title="call.ts"]').click();
     await expect($('.tree-file[title="call.ts"]')).toHaveAttribute(
@@ -228,11 +216,7 @@ describe("Version-aware navigation", () => {
     await sourceContains("asdf(); // B");
   });
   after(async () => {
-    await browser.execute(async (preferences) => {
-      await (window as any).__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-    }, originalPreferences);
+    await reloadApp(originalPreferences);
   });
 
   it("renders definition tabs at the preferred width and respects EditorConfig", async () => {

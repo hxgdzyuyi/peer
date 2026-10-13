@@ -16,6 +16,7 @@ import { defaultComparison } from "../../src/types";
 import type { Preferences } from "../../src/types";
 import type * as TauriCore from "@tauri-apps/api/core";
 import type * as TauriWindow from "@tauri-apps/api/window";
+import { reloadApp } from "./app-fixture";
 
 // withGlobalTauri exposes these native APIs inside each executed webview callback.
 type NativeWindow = Window & {
@@ -41,26 +42,6 @@ async function savedPreferences(): Promise<Preferences> {
       )
     ).preferences;
   });
-}
-
-async function reloadApp(preferences: Preferences | null = null) {
-  const loadedAt = await browser.execute(async (preferences) => {
-    if (preferences) {
-      const nativeWindow = window as unknown as NativeWindow;
-      await nativeWindow.__TAURI__.core.invoke("save_preferences", {
-        preferences,
-      });
-    }
-    return performance.timeOrigin;
-  }, preferences);
-  await browser.refresh();
-  await browser.waitUntil(() =>
-    browser.execute(
-      (before) =>
-        performance.timeOrigin !== before && !!document.querySelector(".app"),
-      loadedAt,
-    ),
-  );
 }
 
 async function switchView(view: "Code" | "Changes") {
@@ -165,16 +146,9 @@ async function removeFromList(path: string) {
 }
 
 async function reopenRemoved(path: string) {
-  // OS directory pickers are outside this driver's DOM. Reopen through the real
-  // native command, then bootstrap the UI; removal itself always uses the menu.
-  await browser.execute(async (path) => {
-    const nativeWindow = window as unknown as NativeWindow;
-    await nativeWindow.__TAURI__.core.invoke("open_repository", {
-      path,
-      comparison: null,
-    });
-  }, path);
-  await reloadApp();
+  // OS directory pickers are outside this driver's DOM. Bootstrap the chosen
+  // path so the app reopens it through the real native command.
+  await reloadApp({ ...(await savedPreferences()), lastRepository: path });
   await waitForRepository(path);
 }
 
