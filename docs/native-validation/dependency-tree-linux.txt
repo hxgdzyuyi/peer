@@ -70,7 +70,7 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   │       [build-dependencies]
 │   │   │   │       └── pkg-config v0.3.34
 │   │   │   │   [build-dependencies]
-│   │   │   │   └── cc v1.6.0
+│   │   │   │   └── cc v1.2.67
 │   │   │   │       ├── find-msvc-tools v0.1.14
 │   │   │   │       └── shlex v2.0.1
 │   │   │   ├── wayland-client v0.31.15
@@ -215,7 +215,9 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │       │   │   ├── winnow v1.0.4
 │   │   │       │   │   └── zvariant v5.15.0
 │   │   │       │   │       ├── endi v1.1.1
-│   │   │       │   │       ├── enumflags2 v0.7.12 (*)
+│   │   │       │   │       ├── enumflags2 v0.7.12
+│   │   │       │   │       │   ├── enumflags2_derive v0.7.12 (proc-macro) (*)
+│   │   │       │   │       │   └── serde v1.0.229 (*)
 │   │   │       │   │       ├── serde v1.0.229 (*)
 │   │   │       │   │       ├── winnow v1.0.4
 │   │   │       │   │       ├── zcheapstr v1.1.0
@@ -234,17 +236,31 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │       │   │       └── zvariant_utils v4.2.0 (*)
 │   │   │       │   ├── zvariant v5.15.0 (*)
 │   │   │       │   └── zvariant_utils v4.2.0 (*)
-│   │   │       ├── zbus_names v4.3.4 (*)
-│   │   │       └── zvariant v5.15.0
-│   │   │           ├── endi v1.1.1
-│   │   │           ├── enumflags2 v0.7.12 (*)
-│   │   │           ├── serde v1.0.229 (*)
-│   │   │           ├── serde_bytes v0.11.19
-│   │   │           │   └── serde_core v1.0.229
-│   │   │           ├── winnow v1.0.4
-│   │   │           ├── zcheapstr v1.1.0 (*)
-│   │   │           ├── zvariant_derive v5.15.0 (proc-macro) (*)
-│   │   │           └── zvariant_utils v4.2.0 (*)
+│   │   │       ├── zbus_names v4.3.4
+│   │   │       │   ├── serde v1.0.229 (*)
+│   │   │       │   ├── winnow v1.0.4
+│   │   │       │   └── zvariant v5.15.0
+│   │   │       │       ├── endi v1.1.1
+│   │   │       │       ├── enumflags2 v0.7.12 (*)
+│   │   │       │       ├── serde v1.0.229 (*)
+│   │   │       │       ├── serde_bytes v0.11.19
+│   │   │       │       │   └── serde_core v1.0.229
+│   │   │       │       ├── winnow v1.0.4
+│   │   │       │       ├── zcheapstr v1.1.0
+│   │   │       │       │   └── serde v1.0.229 (*)
+│   │   │       │       ├── zvariant_derive v5.15.0 (proc-macro) (*)
+│   │   │       │       └── zvariant_utils v4.2.0
+│   │   │       │           ├── proc-macro2 v1.0.107
+│   │   │       │           │   └── unicode-ident v1.0.26
+│   │   │       │           ├── quote v1.0.47
+│   │   │       │           │   └── proc-macro2 v1.0.107 (*)
+│   │   │       │           ├── serde v1.0.229 (*)
+│   │   │       │           ├── syn v3.0.6
+│   │   │       │           │   ├── proc-macro2 v1.0.107 (*)
+│   │   │       │           │   ├── quote v1.0.47 (*)
+│   │   │       │           │   └── unicode-ident v1.0.26
+│   │   │       │           └── winnow v1.0.4
+│   │   │       └── zvariant v5.15.0 (*)
 │   │   ├── chrono v0.4.45
 │   │   │   ├── iana-time-zone v0.1.65
 │   │   │   ├── num-traits v0.2.19
@@ -709,7 +725,7 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   └── waker-fn v1.2.0
 │   │   │   [build-dependencies]
 │   │   │   └── embed-resource v3.0.12
-│   │   │       ├── cc v1.6.0 (*)
+│   │   │       ├── cc v1.2.67 (*)
 │   │   │       ├── memchr v2.8.3
 │   │   │       ├── rustc_version v0.4.1 (*)
 │   │   │       └── toml v1.1.6+spec-1.1.0
@@ -745,7 +761,8 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │       [build-dependencies]
 │   │   │       ├── phf_codegen v0.11.3
 │   │   │       │   ├── phf_generator v0.11.3
-│   │   │       │   │   ├── phf_shared v0.11.3 (*)
+│   │   │       │   │   ├── phf_shared v0.11.3
+│   │   │       │   │   │   └── siphasher v1.0.4
 │   │   │       │   │   └── rand v0.8.8
 │   │   │       │   │       └── rand_core v0.6.4
 │   │   │       │   └── phf_shared v0.11.3 (*)
@@ -837,11 +854,15 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │       │   ├── quote v1.0.47 (*)
 │   │   │       │   ├── rust-embed-utils v8.13.0
 │   │   │       │   │   ├── globset v0.4.20
-│   │   │       │   │   │   ├── aho-corasick v1.1.5 (*)
+│   │   │       │   │   │   ├── aho-corasick v1.1.5
+│   │   │       │   │   │   │   └── memchr v2.8.3
 │   │   │       │   │   │   ├── bstr v1.13.1
 │   │   │       │   │   │   │   └── memchr v2.8.3
 │   │   │       │   │   │   ├── log v0.4.34
-│   │   │       │   │   │   ├── regex-automata v0.4.18 (*)
+│   │   │       │   │   │   ├── regex-automata v0.4.18
+│   │   │       │   │   │   │   ├── aho-corasick v1.1.5 (*)
+│   │   │       │   │   │   │   ├── memchr v2.8.3
+│   │   │       │   │   │   │   └── regex-syntax v0.8.11
 │   │   │       │   │   │   └── regex-syntax v0.8.11
 │   │   │       │   │   ├── sha2 v0.11.1
 │   │   │       │   │   │   ├── cfg-if v1.0.5
@@ -856,10 +877,32 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │       │   │   └── walkdir v2.5.0
 │   │   │       │   │       └── same-file v1.0.6
 │   │   │       │   ├── shellexpand v3.1.2
-│   │   │       │   │   └── dirs v6.0.0 (*)
+│   │   │       │   │   └── dirs v6.0.0
+│   │   │       │   │       └── dirs-sys v0.5.0
+│   │   │       │   │           ├── libc v0.2.190
+│   │   │       │   │           └── option-ext v0.2.0
 │   │   │       │   ├── syn v2.0.119 (*)
 │   │   │       │   └── walkdir v2.5.0 (*)
-│   │   │       ├── rust-embed-utils v8.13.0 (*)
+│   │   │       ├── rust-embed-utils v8.13.0
+│   │   │       │   ├── globset v0.4.20
+│   │   │       │   │   ├── aho-corasick v1.1.5 (*)
+│   │   │       │   │   ├── bstr v1.13.1
+│   │   │       │   │   │   └── memchr v2.8.3
+│   │   │       │   │   ├── log v0.4.34 (*)
+│   │   │       │   │   ├── regex-automata v0.4.18 (*)
+│   │   │       │   │   └── regex-syntax v0.8.11
+│   │   │       │   ├── sha2 v0.11.1
+│   │   │       │   │   ├── cfg-if v1.0.5
+│   │   │       │   │   ├── cpufeatures v0.3.1
+│   │   │       │   │   └── digest v0.11.3
+│   │   │       │   │       ├── block-buffer v0.12.1
+│   │   │       │   │       │   └── hybrid-array v0.4.15
+│   │   │       │   │       │       └── typenum v1.20.1
+│   │   │       │   │       ├── const-oid v0.10.2
+│   │   │       │   │       └── crypto-common v0.2.2
+│   │   │       │   │           └── hybrid-array v0.4.15 (*)
+│   │   │       │   └── walkdir v2.5.0
+│   │   │       │       └── same-file v1.0.6
 │   │   │       └── walkdir v2.5.0 (*)
 │   │   ├── gpui-pre v0.3.9 (*)
 │   │   ├── gpui-pre-macros v0.3.9 (proc-macro) (*)
@@ -901,7 +944,10 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   │   │   ├── globwalk v0.8.1
 │   │   │   │   │   │   ├── bitflags v1.3.2
 │   │   │   │   │   │   ├── ignore v0.4.33
-│   │   │   │   │   │   │   ├── crossbeam-deque v0.8.8 (*)
+│   │   │   │   │   │   │   ├── crossbeam-deque v0.8.8
+│   │   │   │   │   │   │   │   ├── crossbeam-epoch v0.9.21
+│   │   │   │   │   │   │   │   │   └── crossbeam-utils v0.8.23
+│   │   │   │   │   │   │   │   └── crossbeam-utils v0.8.23
 │   │   │   │   │   │   │   ├── globset v0.4.20 (*)
 │   │   │   │   │   │   │   ├── log v0.4.34
 │   │   │   │   │   │   │   ├── memchr v2.8.3
@@ -965,15 +1011,23 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   │   ├── serde_json v1.0.151 (*)
 │   │   │   │   └── syn v2.0.119 (*)
 │   │   │   ├── rust-i18n-support v4.2.4
-│   │   │   │   ├── arc-swap v1.9.2 (*)
+│   │   │   │   ├── arc-swap v1.9.2
+│   │   │   │   │   └── rustversion v1.0.23 (proc-macro)
 │   │   │   │   ├── base62 v2.2.6
 │   │   │   │   ├── foldhash v0.2.0
 │   │   │   │   ├── siphasher v1.0.4
-│   │   │   │   └── triomphe v0.1.17 (*)
+│   │   │   │   └── triomphe v0.1.17
+│   │   │   │       ├── arc-swap v1.9.2 (*)
+│   │   │   │       ├── serde v1.0.229 (*)
+│   │   │   │       └── stable_deref_trait v1.2.1
 │   │   │   └── smallvec v1.16.2
 │   │   │   [build-dependencies]
 │   │   │   ├── globwalk v0.8.1 (*)
-│   │   │   └── regex v1.13.1 (*)
+│   │   │   └── regex v1.13.1
+│   │   │       ├── aho-corasick v1.1.5 (*)
+│   │   │       ├── memchr v2.8.3
+│   │   │       ├── regex-automata v0.4.18 (*)
+│   │   │       └── regex-syntax v0.8.11
 │   │   ├── schemars v1.2.2 (*)
 │   │   ├── serde v1.0.229 (*)
 │   │   ├── serde_json v1.0.151 (*)
@@ -989,36 +1043,144 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   ├── streaming-iterator v0.1.9
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   ├── cc v1.6.0 (*)
+│   │   │   ├── cc v1.2.67 (*)
 │   │   │   └── serde_json v1.0.151 (*)
+│   │   ├── tree-sitter-astro-next v0.1.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-bash v0.23.3
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-c v0.24.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-c-sharp v0.23.5
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-cmake v0.7.5
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-cpp v0.23.4
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-css v0.23.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-diff v0.1.0
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-elixir v0.3.5
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-embedded-template v0.23.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-go v0.23.4
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-graphql v0.1.0
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-html v0.23.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-java v0.23.5
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-javascript v0.23.1
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-jsdoc v0.23.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-json v0.24.8
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-kotlin-sg v0.4.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-lua v0.4.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-make v1.1.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-md v0.5.3
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-php v0.24.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-proto v0.2.0
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-python v0.23.6
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-ruby v0.23.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-rust v0.24.2
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-scala v0.23.4
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-sequel v0.3.11
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-svelte-next v0.1.1
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-swift v0.7.4
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-toml-ng v0.7.0
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── tree-sitter-typescript v0.23.2
 │   │   │   └── tree-sitter-language v0.1.9
 │   │   │   [build-dependencies]
-│   │   │   └── cc v1.6.0 (*)
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-yaml v0.7.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
+│   │   ├── tree-sitter-zig v1.1.2
+│   │   │   └── tree-sitter-language v0.1.9
+│   │   │   [build-dependencies]
+│   │   │   └── cc v1.2.67 (*)
 │   │   ├── unicode-segmentation v1.13.3
 │   │   ├── unicode-width v0.2.2
 │   │   └── uuid v1.26.1 (*)
@@ -1056,7 +1218,13 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │           │   │   │   │   ├── proc-macro2 v1.0.107 (*)
 │           │   │   │   │   ├── quote v1.0.47 (*)
 │           │   │   │   │   ├── syn v2.0.119 (*)
-│           │   │   │   │   ├── zbus-lockstep v0.5.2 (*)
+│           │   │   │   │   ├── zbus-lockstep v0.5.2
+│           │   │   │   │   │   ├── zbus_xml v5.2.1
+│           │   │   │   │   │   │   ├── serde v1.0.229 (*)
+│           │   │   │   │   │   │   ├── winnow v1.0.4
+│           │   │   │   │   │   │   ├── zbus_names v4.3.4 (*)
+│           │   │   │   │   │   │   └── zvariant v5.15.0 (*)
+│           │   │   │   │   │   └── zvariant v5.15.0 (*)
 │           │   │   │   │   ├── zbus_xml v5.2.1 (*)
 │           │   │   │   │   └── zvariant v5.15.0 (*)
 │           │   │   │   ├── zbus_names v4.3.4 (*)
@@ -1290,7 +1458,7 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │           │       ├── freetype-sys v0.20.1
 │           │       │   └── libc v0.2.190
 │           │       │   [build-dependencies]
-│           │       │   ├── cc v1.6.0 (*)
+│           │       │   ├── cc v1.2.67 (*)
 │           │       │   └── pkg-config v0.3.34
 │           │       ├── lazy_static v1.5.1
 │           │       ├── libc v0.2.190
@@ -1462,7 +1630,14 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │               ├── log v0.4.34 (*)
 │               ├── x11rb v0.13.2 (*)
 │               ├── xim-ctext v0.3.0
-│               │   └── encoding_rs v0.8.42 (*)
+│               │   └── encoding_rs v0.8.42
+│               │       ├── cfg-if v1.0.5
+│               │       ├── core_detect v1.0.0
+│               │       ├── multiversion_no_op v1.0.0 (proc-macro)
+│               │       ├── scopeguard v1.2.0
+│               │       └── simdutf8 v0.1.5
+│               │       [build-dependencies]
+│               │       └── rustversion v1.0.23 (proc-macro)
 │               └── xim-parser v0.2.2
 │                   └── bitflags v2.13.2
 ├── peer-core v0.1.2 (/workspace/peer/crates/repo-core)
@@ -1475,7 +1650,9 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   │   │   ├── memchr v2.8.3
 │   │   │   └── ucd-trie v0.1.7
 │   │   ├── pest_derive v2.9.2 (proc-macro)
-│   │   │   ├── pest v2.9.2 (*)
+│   │   │   ├── pest v2.9.2
+│   │   │   │   ├── memchr v2.8.3
+│   │   │   │   └── ucd-trie v0.1.7
 │   │   │   └── pest_generator v2.9.2
 │   │   │       ├── pest v2.9.2 (*)
 │   │   │       ├── pest_meta v2.9.2
@@ -1492,7 +1669,7 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   ├── similar v2.7.0 (*)
 │   ├── tempfile v3.27.0
 │   │   ├── fastrand v2.5.0
-│   │   ├── getrandom v0.4.3 (*)
+│   │   ├── getrandom v0.3.4 (*)
 │   │   ├── once_cell v1.21.4
 │   │   └── rustix v1.1.5 (*)
 │   ├── tokio v1.53.2
@@ -1509,5 +1686,4 @@ peer v0.1.2 (/workspace/peer/crates/peer-native)
 │   └── uuid v1.26.1 (*)
 ├── serde v1.0.229 (*)
 ├── serde_json v1.0.151 (*)
-├── similar v2.7.0 (*)
 └── tokio v1.53.2 (*)

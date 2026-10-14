@@ -1,0 +1,10 @@
+{
+  "passed": [
+    "native-window",
+    "repository-opened",
+    "folder-error-visible",
+    "export-error-visible",
+    "import-error-visible"
+  ],
+  "scenario": "errors"
+}

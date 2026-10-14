@@ -6,7 +6,7 @@ GPUI, using Longbridge's `gpui-component` Diff surface through `gpui-kit`.
 Tauri command layer, embedded browser, or WebView in the startup chain.
 
 **Migration status:** native implementation runs and has repeated Linux window regression evidence;
-full UI parity and macOS acceptance remain open. See [the acceptance ledger](docs/NATIVE-MIGRATION.md)
+the Linux workflow checklist is exercised, with theme-rendering differences and macOS acceptance remaining. See [the acceptance ledger](docs/NATIVE-MIGRATION.md)
 and [validation results and differences](docs/VALIDATION.md). Do not infer feature parity or
 macOS acceptance from compilation. The original application is available at Git
 commit `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`.
@@ -34,8 +34,9 @@ Use Open/Browse to select a repository; select a comparison, then a file. The
 viewer supports unified/split differences and context expansion. The gutter plus
 opens line feedback; File scope attaches a file comment. The feedback panel
 supports editing/deleting, Reviewed, copying and saving export. Repository source
-is never changed. Settings exposes validated core preferences and language-server
-configuration. LSP servers must be installed separately.
+is never changed. Settings provides native appearance/theme search and previews, viewer controls, Git path,
+and language-server executable/enable/interpreter controls. Save applies the settings;
+Cancel discards the form. Advanced custom language-server JSON remains available. LSP servers must be installed separately.
 
 Storage retains `dev.repoinspector.app`, existing `state.json`, atomic replacement
 and file locking. `PEER_DATA_DIR` overrides the data directory; legacy

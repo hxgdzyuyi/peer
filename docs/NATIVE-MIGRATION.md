@@ -37,3 +37,57 @@ not blanket passing assertions. Evidence is retained in `native-validation/`.
 Linux execution cannot validate macOS menus, input methods, signing or packaging.
 A successful `cargo check` never counts as a window test. No AI chat or Git-writing
 functionality belongs in this migration.
+
+## Executed comparison against the original
+
+The source references below refer to the retained baseline commit, not files in
+this native checkout. “Window” means actual input on the native Linux executable;
+“core” and “adapter” mean automated Rust assertions, not a claim of GUI coverage.
+Detailed counts, artifacts and reproduction commands are in [VALIDATION.md](VALIDATION.md).
+
+| Original source / behavior | Native implementation | Evidence / outcome |
+|---|---|---|
+| `RepositoryLocation.tsx`, `RepositorySwitcher.tsx`: browse, recents, relocate/remove | `workspace.rs`: native portal/path entry, recent identity preservation | Desktop 29 assertions; missing-root recovery in smoke; Linux passed |
+| `App.tsx`, `CommitHistory.tsx`: six modes, branch/commit, history pages | Core snapshots/history plus async native toolbar | Mode screenshots/record + smoke rapid switching; core history tests passed |
+| `FileTree.tsx`, `QuickOpen.tsx`, `ResizableWorkspace.tsx`: tree, filter, keyboard, panels | Virtual tree, expanded filtering, keyboard candidate scroll, native resizable panels | Smoke candidate beyond viewport, desktop feedback hide/show; passed |
+| `diff.worker.ts`, `parse-diff.ts`, `Viewer.tsx`: old/new text, coordinates, split/unified, context | Core `presentation.rs`, native `adapter.rs`, GPUI Diff | Five adapter/storage tests; actual multi-file 10k-line rendering and mode screenshots; passed |
+| `loaded-file.ts`: special files and deferred sources | Core semantics retained; native placeholders + explicit load | Smoke binary/symlink/rename/submodule/conflict/deferred and 22k-line load; passed |
+| `Feedback.tsx`: old/new/file anchor, edit/delete, stale context, comment jump | Native comments and gutter extension, saved source text, pending line jump | Smoke old/new/file/edit/delete/stale/restart; desktop jump/context; passed |
+| `Feedback.tsx`: draft, discard, clear with confirmation, panel visibility | Per-file/fingerprint draft and explicit clear confirmation | Smoke switch/restart; desktop discard/cancel/confirm/hide/show; passed |
+| `App.tsx`, `Feedback.tsx`: Reviewed and export | Existing fingerprint model, clipboard + native save dialog | Smoke invalidation; desktop export byte equality and clear retains Reviewed; passed |
+| `api.ts`, old Tauri storage commands: schema1 and data directory | Independent core store + additive native state | Legacy state round trip, precedence test, process restarts; passed |
+| `search.tsx`, `whitespace.ts`, `Viewer.tsx`: search/jump/selection/copy | Literal Unicode search, exact source mappings, native Diff selection | Core Unicode/UTF-16/CRLF tests, smoke search, real frozen-source search/jump; passed |
+| `useNavigation.ts`, `HorizontalScrollbar.tsx`: Back and viewport | In-memory Back plus persisted review source/vertical/horizontal anchors | Navigation 9 assertions and horizontal second-shutdown equality; passed |
+| `Settings.tsx`, `themes.ts`: appearance, theme search/preview/import/remove, font/tab/whitespace/Git | `settings.rs` native form tabs with Save/Cancel; `themes.rs` conversion | Smoke controls/restart and desktop actual import/remove; passed with rendering differences below |
+| `NavigationSettings.tsx`: servers, executable, enable, Python interpreter, custom configuration | Native fields/toggles/preset restore; optional advanced JSON | Smoke persisted settings; core validation; passed |
+| `navigation.ts`, `NavigationResults.tsx`, `NavigationSource.tsx`: definitions/references, frozen sides, cancel | Core Tokio LSP + generation guards, native result/source view | Real Python window 9 assertions, real Go/TS/JS/Rust core integration, standard fake-server races; passed |
+| `refresh.ts`, `memory.ts`: stale completion and large workload | Generation checks, pending-root continuity, background CPU work, virtual lists and budgets | Rapid switching smoke, core stale-save tests, 100-file/10k-line actual render; functional passed; latency gate unmeasured |
+| Native dialog failure and unavailable services | Both platform errors and canceled channel errors shown in UI | Dialog-errors 5 assertions; passed |
+| Native menu/IME, macOS bundle | GPUI menus and macOS 15+ bundle script | Linux keyboard/clipboard/close passed; macOS integration remains platform-blocked |
+| Build/start chain | Rust executable, pinned GPUI Kit, independent core; old frontend deleted | Linux/macOS dependency graph audit and locked build; no Tauri app/WebView; Windows helper caveat in report |
+
+## Theme rendering differences
+
+All Tree-sitter languages included by GPUI component v0.7.3 are enabled. This
+replaces the old Shiki grammar engine; languages without a native grammar fall
+back to plain text. Exact tokenization and colors cannot be identical across
+these different engines.
+
+The six original bundled JSON themes and their licenses remain. Imported VS Code
+JSON is retained in the original core model. Editor background/foreground,
+selection, line numbers, panel borders, button colors, muted text and Git
+addition/deletion colors map to native theme fields. TextMate comment, function,
+keyword/storage, string, numeric/constant, type and variable categories map to
+Tree-sitter styles, including foreground, italic and bold (normal style resets
+are respected). Hierarchical TextMate selectors, semantic-token rules and
+underline/strikethrough do not have equivalent mappings in the pinned native
+ThemeStyle. Unmapped UI fields retain the selected native light/dark defaults.
+This is an explicit rendering difference, not a hidden claim of pixel parity.
+
+## Remaining platform gates
+
+A macOS 15+ host must execute menu, IME, dialog, bundle/install and signing checks.
+This Linux cloud environment cannot prove those results. Controlled hardware
+performance thresholds and Windows desktop acceptance also remain unmeasured.
+No remote release, push or CI run was performed. The Linux workflows above have
+executable regression coverage rather than being deferred as implementation work.

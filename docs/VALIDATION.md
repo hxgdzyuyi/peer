@@ -8,10 +8,14 @@ Baseline: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`, independently checked agai
 |---|---|
 | Core suite | 48 passed; two opt-in real-server suites skipped by the standard invocation. [Log](native-validation/core-tests.log) |
 | Native adapter and directory tests | 5 passed: absent sides, rename, Unicode filename, CRLF, unterminated lines, deferred/binary/empty content, 100-file actual native parser, environment-variable precedence. [Log](native-validation/native-tests.log) |
+| Real language servers | Go (gopls), TypeScript, JavaScript and Rust (rust-analyzer) opt-in integration passed. [Log](native-validation/all-real-lsp.log) |
 | Real Python LSP | Pyright 1.1.407: opt-in definition/reference/import/stub/method regression passed independently. [Log](native-validation/python-lsp.log) |
 | Native executable | Rust 1.95.0, locked dependencies, Linux debug binary successfully linked. [Log](native-validation/link.log) |
 | Formatting | `cargo fmt --all -- --check` passed. [Log](native-validation/format.log) |
-| Actual native window regression | Repeated Xvfb/llvmpipe runs, final reproducible smoke: 23 state/lifecycle assertions passed, with real mouse/keyboard input. [Script](../tests/native_smoke.py), [result](native-validation/smoke/result.json), [screenshots](native-validation/smoke/) |
+| Actual native window regression | Repeated Xvfb/llvmpipe runs, final reproducible smoke: 45 state/lifecycle/pixel assertions passed, with real mouse/keyboard input. [Script](../tests/native_smoke.py), [result](native-validation/smoke/result.json), [screenshots](native-validation/smoke/) |
+| Native desktop workflows | 29 assertions: actual GTK folder/export/import dialogs, clipboard equality, theme removal, recent-root relocation/removal, comment jump/context, discard, feedback toggle and confirmed queue clear. [Result](native-validation/desktop/result.json), [script](../tests/native_desktop.py) |
+| Navigation regression | 9 assertions with real Pyright: frozen-source search, line jump, Back restores original anchor/draft, definitions and references. [Result](native-validation/navigation/result.json) |
+| Dialog error recovery | 5 assertions with deliberately unavailable D-Bus in the app process: folder, export and import errors become visible and the UI remains usable. [Result](native-validation/dialog-errors/result.json) |
 | Comparison modes | Code, all, staged, unstaged, branch, commit and rapid switching exercised in the window. [Record](native-validation/ui-modes.json) |
 | Comments and Reviewed | Old/new-line anchor 2 and file-scope comments, edit/delete, save, draft switching, restart, outdated retention and fingerprint invalidation. [Record](native-validation/ui-stale.json), [screenshot](native-validation/31-outdated.png) |
 | Native clipboard and save dialog | Real clipboard JSON equals file saved through native GTK portal dialog; old side and outdated flags preserved. [Record](native-validation/export-result.json), [dialog](native-validation/35-export-dialog.png) |
@@ -24,15 +28,17 @@ Baseline: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`, independently checked agai
 
 ## Reproduction
 
-On a Linux graphical development host with the GPUI platform development libraries, Git, Rust 1.95, Node 22 (core fake-LSP tests only), Xvfb, xdotool, ImageMagick and Mesa Vulkan:
+On a Linux graphical development host with the GPUI platform development libraries, Git, Rust 1.95, Node 22 (core fake-LSP tests only), Xvfb, xfwm4, wmctrl, xdotool, xclip, ImageMagick, Tesseract, D-Bus, GTK desktop portals and Mesa Vulkan (navigation additionally needs Pyright on PATH):
 
 ```sh
 cargo test --locked -p peer-core
 cargo test --locked -p peer
 cargo build --locked -p peer
 cargo fmt --all -- --check
-xvfb-run -a -s '-screen 0 1440x900x24' \
-  python3 tests/native_smoke.py target/debug/peer test-results/native-smoke
+scripts/test-native-linux.sh smoke test-results/native-smoke
+scripts/test-native-linux.sh desktop test-results/native-desktop
+scripts/test-native-linux.sh navigation test-results/native-navigation
+scripts/test-native-linux.sh errors test-results/native-errors
 ```
 
 The harness creates disposable repositories and a dedicated PEER_DATA_DIR. It sends actual input, verifies the on-disk state and records screenshots. It must run in a disposable display, never a colleague's active desktop. UI screenshots require visual inspection; persisted-state assertions alone do not prove pixels or hit targets.
@@ -44,12 +50,23 @@ The numeric screenshots retain intermediate investigation, including the initial
 ## Limits and remaining differences
 
 - Linux evidence does **not** validate macOS 15+ menus, IME, native dialogs, packaging, ad-hoc signing, notarization or installation. A macOS bundle script and CI job exist but were not executed here. No hosted CI, release, merge or remote push is claimed.
-- Real LSP window coverage is Python. The unchanged core's fake-server regression covers the other presets; the combined opt-in Go/TypeScript/JavaScript/Rust suite was not run for this migration. Earlier macOS/WebView real-server evidence is historical only.
-- No controlled 100 ms startup/input or 33 ms frame-time gate was measured. Software-rendered large-diff interaction is functional evidence, not a latency benchmark. Cancellation/generation guards prevent stale application of results, but do not instantly terminate already-running CPU diff calculations.
-- Settings currently uses a native JSON editor backed by the existing validated preference model. The original individual form controls, theme search and previews have not been recreated. Bundled themes/import/removal are implemented; TextMate theme colors are approximated into Tree-sitter categories rather than guaranteeing identical token appearance.
-- File tree filtering and keyboard quick-open are implemented; keyboard selection scrolls the candidate into view. Navigation history is backward-only and in-memory, as distinct from persisted review/session state.
-- Recent-root relocation/removal and special Git file kinds are implemented and have core/adapter coverage, but lack dedicated native-window assertions. They remain explicit UI acceptance gaps, not inferred passes.
-- The final standard smoke rechecks primary review/comparison/error recovery paths. Horizontal-scroll restore, quick-open auto-scroll, macOS Edit menu, and the final frozen-source search/back-anchor refinements compile and are code-reviewed, but do not have dedicated automated native-window assertions.
+- Real LSP window coverage is Python; the real-server core suite additionally exercised Go, TypeScript, JavaScript and Rust. Server installations are external tools, not bundled app dependencies.
+- No controlled 100 ms startup/input or 33 ms frame-time gate was measured. Software-rendered large-diff interaction is functional evidence, not a latency benchmark. Generation guards reject stale results; already-running CPU diff work is bounded rather than instantly terminated.
+- Native settings now include normal form controls, theme search/previews, import/removal, per-server enable/executable and Python interpreter. Native Save/Cancel is an explicit transaction; the original appearance form applied some choices immediately. Advanced custom-server JSON is optional.
+- All language grammars offered by the pinned GPUI component are enabled. The former Shiki/TextMate engine and the new Tree-sitter engine do not have identical language coverage or selectors. Unsupported languages display plain text. Theme mapping details are in [the ledger](NATIVE-MIGRATION.md#theme-rendering-differences).
+- Navigation history remains backward-only and in-memory, matching the original hook; review/session state and vertical/horizontal viewport positions persist. The final window suites verify quick-open candidate visibility, horizontal restoration after layout and second shutdown, frozen-source search/back anchors, special Git file kinds and explicit large-source loading.
 - Linux/macOS active dependency graphs have no Tauri app runtime, Wry, WebKit or WebView. `Cargo.lock` still contains `tauri-winrt-notification`, a Windows-only notification helper through upstream `notify-rust`; it is not the Tauri app framework. [Exact dependency chain](native-validation/windows-notification-dependency.txt). Windows desktop is not accepted.
 
-This is a substantive, running native migration with the old application removed, **not a claim of 100% original UI parity or macOS release readiness**. Remaining acceptance gaps are recorded so follow-up work cannot mistake compilation for platform validation.
+The old application is removed and the Linux workflow checks pass. This is **not a claim of identical syntax pixels or macOS release readiness**. The acceptance ledger distinguishes executed Linux checks, automated core invariants and platform gates.
+
+## Follow-up regression evidence
+
+The final forms and workflows were exercised again after fixing rapid-switch last-request loss, horizontal restoration after layout, quick-open repaint/scroll and hidden dialog errors. Source display preparation and frozen-navigation materialization run on background workers.
+
+- [Appearance and theme search](native-validation/smoke/13-theme-search.png), [viewer](native-validation/smoke/10-settings-viewer.png), [navigation settings](native-validation/smoke/11-settings-navigation.png), [Git settings](native-validation/smoke/12-settings-git.png).
+- [Keyboard candidate beyond the viewport](native-validation/smoke/14-keyboard-candidate-visible.png), [horizontal position restored](native-validation/smoke/16-horizontal-restored.png), [explicit 22,000-line source](native-validation/smoke/18-explicit-large-source.png).
+- [Feedback hidden](native-validation/desktop/07-feedback-hidden.png), [confirmed queue clear](native-validation/desktop/08-clear-confirmed.png).
+
+Each reported number counts named harness assertions, including lifecycle setup; it is not a count of independent product features. Initial numeric screenshots/video remain real earlier native runs; current subdirectory results are the repeatable acceptance set. No failed-run screenshot is counted as a pass.
+
+Repeated runs also exposed OCR harness ambiguity between theme filter text and the actual card, plus footer segmentation under concurrent compilation. The harness now uses verified theme-button hit targets, a footer crop and one OCR worker. The failed screenshots visibly showed successful native LSP results; they were not counted as passing runs. All four final suites then passed.

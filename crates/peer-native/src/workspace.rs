@@ -1,4 +1,7 @@
+#[path = "settings.rs"]
+mod settings;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, ResizableState};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
@@ -82,6 +85,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-f", Find, Some("Peer")),
         KeyBinding::new("secondary-g", GoLine, Some("Peer")),
         KeyBinding::new("alt-left", Back, Some("Peer")),
+        KeyBinding::new("ctrl--", Back, Some("Peer")),
         KeyBinding::new("secondary-,", Settings, Some("Peer")),
         KeyBinding::new("f12", Definition, Some("Peer")),
         KeyBinding::new("shift-f12", References, Some("Peer")),
@@ -111,8 +115,12 @@ pub struct Workspace {
     file_epoch: u64,
     themes: Vec<ImportedTheme>,
     feedback_pending: bool,
+    feedback_visible: bool,
+    clear_queue_request: Option<String>,
+    pending_jump: Option<DiffLinePosition>,
     preferences: Preferences,
     snapshot: Option<Snapshot>,
+    pending_root: Option<String>,
     content: Option<Arc<FileContent>>,
     queue: ReviewQueue,
     all_files: bool,
@@ -126,6 +134,7 @@ pub struct Workspace {
     column: Entity<InputState>,
     comment: Entity<TextareaState>,
     settings: Entity<TextareaState>,
+    settings_form: Option<settings::SettingsForm>,
     focus: FocusHandle,
     subscriptions: Vec<Subscription>,
     loading: bool,
@@ -207,6 +216,34 @@ fn files(content: &FileContent, code: bool) -> Result<Vec<DiffFile>, String> {
         .map_err(|e| e.to_string())
 }
 
+async fn navigation_models(
+    core: Arc<Inspector>,
+    snapshot: String,
+    side: String,
+    document: String,
+    force: bool,
+    width: u32,
+    whitespace: bool,
+) -> Result<(NavigationFile, Vec<DiffFile>), String> {
+    let file = core
+        .read_navigation_file(&snapshot, &side, &document, force)
+        .await
+        .map_err(|e| e.message)?;
+    tokio::task::spawn_blocking(move || {
+        let models = file
+            .content
+            .as_ref()
+            .map(|text| {
+                vec![DiffFile::unchanged(file.path.clone(), text)
+                    .with_display_options(file.tab_width.unwrap_or(width) as usize, whitespace)]
+            })
+            .unwrap_or_default();
+        (file, models)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 impl Workspace {
     pub fn new(
         core: Arc<Inspector>,
@@ -234,6 +271,7 @@ impl Workspace {
         });
         let subscriptions = vec![cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify())];
         let mut this = Self {
+            settings_form: None,
             pending_jobs: Default::default(),
             core,
             runtime,
@@ -242,8 +280,12 @@ impl Workspace {
             file_epoch: 0,
             themes: crate::themes::builtins(),
             feedback_pending: false,
+            feedback_visible: true,
+            clear_queue_request: None,
+            pending_jump: None,
             preferences,
             snapshot: None,
+            pending_root: None,
             content: None,
             queue: ReviewQueue::default(),
             all_files: false,
@@ -292,6 +334,7 @@ impl Workspace {
                 InputEvent::Change => {
                     this.quick_index = 0;
                     this.quick_scroll_pending = true;
+                    window.refresh();
                     cx.notify();
                 }
                 InputEvent::PressEnter { .. } => {
@@ -520,6 +563,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.remember(cx);
+        self.clear_queue_request = None;
+        self.pending_jump = None;
+        self.pending_root = Some(path.clone());
+        self.path
+            .update(cx, |s, cx| s.set_value(path.clone(), window, cx));
         self.cancel_navigation();
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         self.file_epoch += 1;
@@ -651,12 +699,16 @@ impl Workspace {
         self.loading = true;
         self.comment.update(cx, |s, cx| s.set_value("", window, cx));
         self.diff.update(cx, |s, cx| s.set_files([], cx));
+        let whitespace = self.preferences.show_whitespace;
         let core = self.core.clone();
         self.task(
             async move {
                 let content = core.read_file(&snapshot_id, &id, force).await?;
                 let result = tokio::task::spawn_blocking(move || {
-                    let files = files(&content, code)?;
+                    let files = files(&content, code)?
+                        .into_iter()
+                        .map(|f| f.with_display_options(content.tab_width as usize, whitespace))
+                        .collect::<Vec<_>>();
                     Ok::<_, String>((Arc::new(content), files))
                 })
                 .await
@@ -670,12 +722,6 @@ impl Workspace {
                     return;
                 }
                 this.loading = false;
-                let files = files.into_iter().map(|f| {
-                    f.with_display_options(
-                        content.tab_width as usize,
-                        this.preferences.show_whitespace,
-                    )
-                });
                 this.diff.update(cx, |s, cx| s.set_files(files, cx));
                 this.content = Some(content);
                 if let Some(view) = this
@@ -686,6 +732,8 @@ impl Workspace {
                     this.comment
                         .update(cx, |s, cx| s.set_value(view.body, window, cx));
                     this.editing = view.editing;
+                    this.diff
+                        .update(cx, |s, cx| s.restore_horizontal(view.horizontal, cx));
                     let path = this
                         .content
                         .as_ref()
@@ -720,6 +768,15 @@ impl Workspace {
                     this.diff
                         .update(cx, |s, cx| s.restore_legacy_scroll(top as f32, cx));
                 }
+                if let Some(position) = this.pending_jump.take().filter(|p| {
+                    this.content
+                        .as_ref()
+                        .is_some_and(|f| f.path == p.path().as_str())
+                }) {
+                    this.diff
+                        .update(cx, |s, cx| s.scroll_to_line(position.clone(), cx));
+                    this.anchor = Some(position);
+                }
                 this.remember(cx);
             },
         );
@@ -738,8 +795,14 @@ impl Workspace {
         }
     }
     fn compare(&mut self, mode: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(s) = &self.snapshot else { return };
-        let path = s.repository.root.clone();
+        let Some(path) = self
+            .snapshot
+            .as_ref()
+            .map(|s| s.repository.root.clone())
+            .or_else(|| self.pending_root.clone())
+        else {
+            return;
+        };
         let comparison = Comparison {
             view: if mode == "code" { "code" } else { "changes" }.into(),
             mode: if mode == "code" { "all" } else { mode }.into(),
@@ -873,6 +936,7 @@ impl Workspace {
         let queue = snapshot.queue_id.clone();
         let core = self.core.clone();
         let gate = self.gate.clone();
+        let deleted = id.clone();
         self.task(
             async move {
                 let _guard = gate.lock().await;
@@ -880,7 +944,78 @@ impl Workspace {
             },
             window,
             cx,
-            |this, (), window, cx| this.update_queue(window, cx),
+            move |this, (), window, cx| {
+                if this.editing.as_ref() == Some(&deleted) {
+                    this.editing = None;
+                }
+                this.update_queue(window, cx);
+            },
+        );
+    }
+    fn jump_comment(
+        &mut self,
+        comment: peer_core::Comment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if comment.outdated {
+            self.notice =
+                "Original source changed; the saved line context is retained below the comment."
+                    .into();
+            cx.notify();
+            return;
+        }
+        let entry = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.files.iter().find(|f| f.path == comment.path))
+            .cloned();
+        let Some(entry) = entry else {
+            self.notice =
+                "The original file is no longer present; saved context is retained.".into();
+            cx.notify();
+            return;
+        };
+        if self.all_files && self.loaded_files.contains_key(&comment.path) {
+            self.activate_loaded(&comment.path, window, cx);
+        }
+        let position = DiffLinePosition::new(
+            comment.path.clone(),
+            diff_side(comment.anchor.side.as_deref().unwrap_or("new")),
+            comment.anchor.line.unwrap_or(1) as usize,
+        );
+        if self
+            .content
+            .as_ref()
+            .is_some_and(|f| f.path == comment.path)
+            && self.navigation_file.is_none()
+        {
+            self.diff
+                .update(cx, |s, cx| s.scroll_to_line(position.clone(), cx));
+            self.anchor = Some(position);
+        } else {
+            self.pending_jump = Some(position);
+            self.select(entry.id, false, window, cx);
+        }
+        cx.notify();
+    }
+    fn clear_review_comments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(queue) = self.clear_queue_request.take() else {
+            return;
+        };
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.delete_comments(&queue, None)
+            },
+            window,
+            cx,
+            |this, (), w, c| {
+                this.editing = None;
+                this.update_queue(w, c);
+            },
         );
     }
     fn reviewed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -924,7 +1059,20 @@ impl Workspace {
                 let receiver =
                     cx.prompt_for_new_path(std::path::Path::new("."), Some("feedback.json"));
                 cx.spawn_in(window, async move |this, cx| {
-                    if let Ok(Ok(Some(path))) = receiver.await {
+                    let response = receiver.await;
+                    if let Err(error) = &response {
+                        let _ = this.update(cx, |this, cx| {
+                            this.error = Some(format!("Save dialog unavailable: {error}"));
+                            cx.notify();
+                        });
+                    }
+                    if let Ok(Err(error)) = &response {
+                        let _ = this.update(cx, |this, cx| {
+                            this.error = Some(format!("Save dialog: {error}"));
+                            cx.notify();
+                        });
+                    }
+                    if let Ok(Ok(Some(path))) = response {
                         let _ = this.update_in(cx, |this, window, cx| {
                             this.task(
                                 async move {
@@ -1122,23 +1270,17 @@ impl Workspace {
             crate::themes::apply(theme, self.preferences.code_font_size, cx);
         }
     }
-    fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match serde_json::to_string_pretty(&self.preferences) {
-            Ok(value) => {
-                self.settings
-                    .update(cx, |s, cx| s.set_value(value, window, cx));
-                self.settings_visible = true;
-            }
-            Err(e) => self.error = Some(e.to_string()),
-        }
-        cx.notify();
-    }
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let preferences = match serde_json::from_str::<Preferences>(&self.settings.read(cx).value())
+        let preferences = match self
+            .settings_form
+            .as_ref()
+            .ok_or_else(|| "Settings are not open".to_string())
+            .and_then(|f| f.value(&self.settings, cx))
         {
             Ok(p) => p,
             Err(e) => {
-                self.error = Some(e.to_string());
+                self.error = Some(e);
+                cx.notify();
                 return;
             }
         };
@@ -1161,20 +1303,6 @@ impl Workspace {
                 this.preferences = preferences;
                 this.settings_visible = false;
                 this.apply_theme(window, cx);
-                if let Some(content) = &this.content {
-                    let width = content.tab_width;
-                    let display = this
-                        .diff
-                        .read(cx)
-                        .files()
-                        .iter()
-                        .cloned()
-                        .map(|f| {
-                            f.with_display_options(width as usize, this.preferences.show_whitespace)
-                        })
-                        .collect::<Vec<_>>();
-                    this.diff.update(cx, |s, cx| s.set_files(display, cx));
-                }
                 this.diff.update(cx, |s, cx| {
                     s.set_mode(
                         if this.preferences.diff_layout == "split" {
@@ -1185,6 +1313,7 @@ impl Workspace {
                         cx,
                     )
                 });
+                this.refresh(window, cx);
             },
         );
     }
@@ -1286,6 +1415,8 @@ impl Workspace {
         let document = location.document_id.clone();
         let line = location.range.start.line as usize + 1;
         let core = self.core.clone();
+        let width = self.preferences.tab_width;
+        let whitespace = self.preferences.show_whitespace;
         self.navigation_history.push((
             self.diff.read(cx).files().to_vec(),
             self.navigation_file.clone(),
@@ -1302,35 +1433,19 @@ impl Workspace {
         self.diff.update(cx, |s, cx| s.set_files([], cx));
         self.task(
             async move {
-                core.read_navigation_file(&id, &side, &document, false)
-                    .await
-                    .map_err(|e| e.message)
+                navigation_models(core,id,side,document,false,width,whitespace).await
             },
             window,
             cx,
-            move |this, file, _, cx| {
+            move |this, (file,models), _, cx| {
                 if this.file_epoch != generation {
                     return;
                 }
                 this.loading = false;
-                if let Some(content) = &file.content {
-                    let position =
-                        DiffLinePosition::new(file.path.clone(), DiffSide::Modified, line);
-                    this.diff.update(cx, |s, cx| {
-                        s.set_files(
-                            [
-                                DiffFile::unchanged(file.path.clone(), content)
-                                    .with_display_options(
-                                        file.tab_width.unwrap_or(this.preferences.tab_width)
-                                            as usize,
-                                        this.preferences.show_whitespace,
-                                    ),
-                            ],
-                            cx,
-                        );
-                        s.scroll_to_line(position.clone(), cx);
-                    });
-                    this.anchor = Some(position);
+                if !models.is_empty() {
+                    let position=DiffLinePosition::new(file.path.clone(),DiffSide::Modified,line);
+                    this.diff.update(cx,|s,cx|{s.set_files(models,cx);s.scroll_to_line(position.clone(),cx);});
+                    this.anchor=Some(position);
                 }
                 this.hits.clear();
                 this.notice = file.label.clone();
@@ -1343,32 +1458,29 @@ impl Workspace {
             return;
         };
         let core = self.core.clone();
+        let width = self.preferences.tab_width;
+        let whitespace = self.preferences.show_whitespace;
         let generation = self.file_epoch;
         self.task(
             async move {
-                core.read_navigation_file(&file.snapshot_id, &file.side, &file.document_id, true)
-                    .await
-                    .map_err(|e| e.message)
+                navigation_models(
+                    core,
+                    file.snapshot_id,
+                    file.side,
+                    file.document_id,
+                    true,
+                    width,
+                    whitespace,
+                )
+                .await
             },
             window,
             cx,
-            move |this, file, _, cx| {
+            move |this, (file, models), _, cx| {
                 if this.file_epoch != generation {
                     return;
                 }
-                if let Some(text) = &file.content {
-                    this.diff.update(cx, |s, cx| {
-                        s.set_files(
-                            [
-                                DiffFile::unchanged(file.path.clone(), text).with_display_options(
-                                    file.tab_width.unwrap_or(4) as usize,
-                                    this.preferences.show_whitespace,
-                                ),
-                            ],
-                            cx,
-                        )
-                    });
-                }
+                this.diff.update(cx, |s, cx| s.set_files(models, cx));
                 this.navigation_file = Some(file);
             },
         );
@@ -1492,7 +1604,20 @@ impl Workspace {
             prompt: Some("Import self-contained VS Code theme".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = receiver.await {
+            let response = receiver.await;
+            if let Err(error) = &response {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(format!("Theme import dialog unavailable: {error}"));
+                    cx.notify();
+                });
+            }
+            if let Ok(Err(error)) = &response {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(format!("Theme import dialog: {error}"));
+                    cx.notify();
+                });
+            }
+            if let Ok(Ok(Some(paths))) = response {
                 if let Some(path) = paths.first() {
                     let path = path.to_string_lossy().into_owned();
                     let _ = this.update_in(cx, |this, window, cx| {
@@ -1513,37 +1638,6 @@ impl Workspace {
         })
         .detach();
     }
-    fn choose_theme(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(theme) = self.themes.iter().find(|t| t.id == id) else {
-            return;
-        };
-        let mut appearance = self.preferences.appearance.clone();
-        appearance.mode = theme.kind.clone();
-        if theme.kind == "dark" {
-            appearance.dark_theme = id;
-        } else {
-            appearance.light_theme = id;
-        }
-        let core = self.core.clone();
-        let gate = self.gate.clone();
-        self.task(
-            async move {
-                let _guard = gate.lock().await;
-                core.store.update(|d| {
-                    d.preferences.appearance = appearance.clone();
-                    Ok(())
-                })?;
-                Ok(appearance)
-            },
-            window,
-            cx,
-            |this, appearance, window, cx| {
-                this.preferences.appearance = appearance;
-                this.apply_theme(window, cx);
-                this.show_settings(window, cx);
-            },
-        );
-    }
     fn remove_theme(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let core = self.core.clone();
         self.task(
@@ -1556,8 +1650,17 @@ impl Workspace {
             |this, (id, preferences), window, cx| {
                 this.themes.retain(|t| t.id != id);
                 this.preferences = preferences;
+                if let Some(form) = &mut this.settings_form {
+                    if form.draft.appearance.light_theme == id {
+                        form.draft.appearance.light_theme =
+                            this.preferences.appearance.light_theme.clone();
+                    }
+                    if form.draft.appearance.dark_theme == id {
+                        form.draft.appearance.dark_theme =
+                            this.preferences.appearance.dark_theme.clone();
+                    }
+                }
                 this.apply_theme(window, cx);
-                this.show_settings(window, cx);
             },
         );
     }
@@ -1684,6 +1787,7 @@ impl Render for Workspace {
         for comment in queue.comments {
             let delete = comment.id.clone();
             let edit = comment.clone();
+            let jump = comment.clone();
             let position = comment
                 .anchor
                 .line
@@ -1701,12 +1805,20 @@ impl Render for Workspace {
                     .p_2()
                     .border_1()
                     .border_color(cx.theme().border)
-                    .child(format!(
-                        "{}{}{}",
-                        comment.path,
-                        position,
-                        if comment.outdated { " · OUTDATED" } else { "" }
-                    ))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("jump-{}", comment.id)))
+                            .cursor_pointer()
+                            .child(format!(
+                                "{}{}{}",
+                                comment.path,
+                                position,
+                                if comment.outdated { " · OUTDATED" } else { "" }
+                            ))
+                            .on_click(cx.listener(move |this, _, w, c| {
+                                this.jump_comment(jump.clone(), w, c)
+                            })),
+                    )
                     .child(comment.body)
                     .child(
                         h_flex()
@@ -1732,7 +1844,15 @@ impl Render for Workspace {
                                         this.delete_comment(delete.clone(), window, cx)
                                     })),
                             ),
-                    ),
+                    )
+                    .when_some(comment.anchor.line_text.clone(), |this, text| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("Saved source: {text}")),
+                        )
+                    }),
             );
         }
         let scope = if let Some(anchor) = &self.anchor {
@@ -1812,6 +1932,7 @@ impl Render for Workspace {
                     if this.navigation_file.is_some() {
                         return;
                     }
+                    this.feedback_visible = true;
                     this.activate_loaded(range.path(), window, cx);
                     this.anchor = Some(DiffLinePosition::new(
                         range.path().clone(),
@@ -1858,60 +1979,7 @@ impl Render for Workspace {
             });
         let mut center = v_flex().flex_1().min_w_0().min_h_0();
         if self.settings_visible {
-            let mut themes = h_flex().gap_1().flex_wrap();
-            for theme in self.themes.clone() {
-                let id = theme.id.clone();
-                let remove = theme.id.clone();
-                themes = themes.child(
-                    Button::new(SharedString::from(format!("theme-{id}")))
-                        .small()
-                        .label(theme.name)
-                        .on_click(
-                            cx.listener(move |this, _, w, c| this.choose_theme(id.clone(), w, c)),
-                        ),
-                );
-                if !crate::themes::builtins().iter().any(|t| t.id == theme.id) {
-                    themes = themes.child(
-                        Button::new(SharedString::from(format!("remove-theme-{remove}")))
-                            .small()
-                            .label("Remove")
-                            .on_click(cx.listener(move |this, _, w, c| {
-                                this.remove_theme(remove.clone(), w, c)
-                            })),
-                    );
-                }
-            }
-            center = center
-                .child(themes)
-                .child(
-                    Button::new("import-theme")
-                        .label("Import theme…")
-                        .on_click(cx.listener(|this, _, w, c| this.import_theme(w, c))),
-                )
-                .child(
-                    div()
-                        .p_2()
-                        .child("Preferences and language servers (validated JSON)"),
-                )
-                .child(Textarea::new(&self.settings).h(px(500.)))
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("save-settings")
-                                .primary()
-                                .label("Save settings")
-                                .on_click(cx.listener(|this, _, w, c| this.save_settings(w, c))),
-                        )
-                        .child(
-                            Button::new("close-settings")
-                                .label("Close")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.settings_visible = false;
-                                    cx.notify();
-                                })),
-                        ),
-                );
+            center = center.child(self.settings_panel(window, cx));
         } else {
             center =
                 center.child(
@@ -2091,7 +2159,7 @@ impl Render for Workspace {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .text_sm()
-            .on_action(cx.listener(|this, _: &NextFile, _, cx| {
+            .on_action(cx.listener(|this, _: &NextFile, window, cx| {
                 let filter = this.filter.read(cx).value().to_lowercase();
                 let count = this
                     .snapshot
@@ -2109,11 +2177,13 @@ impl Render for Workspace {
                     this.notice =
                         format!("Quick open result {} of {}", this.quick_index + 1, count);
                 }
+                window.refresh();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PreviousFile, _, cx| {
+            .on_action(cx.listener(|this, _: &PreviousFile, window, cx| {
                 this.quick_index = this.quick_index.saturating_sub(1);
                 this.quick_scroll_pending = true;
+                window.refresh();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Open, w, c| this.choose_folder(w, c)))
@@ -2133,9 +2203,10 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Settings, w, c| this.show_settings(w, c)))
             .on_action(cx.listener(|this, _: &Definition, w, c| this.navigate("auto", w, c)))
             .on_action(cx.listener(|this, _: &References, w, c| this.navigate("references", w, c)))
-            .on_action(cx.listener(|this, _: &Cancel, _, c| {
+            .on_action(cx.listener(|this, _: &Cancel, w, c| {
                 this.cancel_navigation();
                 this.settings_visible = false;
+                this.apply_theme(w, c);
                 this.recent_visible = false;
                 c.notify();
             }))
@@ -2145,6 +2216,15 @@ impl Render for Workspace {
                     .gap_2()
                     .child(div().font_bold().child("PEER"))
                     .child(Input::new(&self.path).flex_1())
+                    .child(
+                        Button::new("feedback-toggle")
+                            .label("Feedback")
+                            .selected(self.feedback_visible)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.feedback_visible = !this.feedback_visible;
+                                cx.notify();
+                            })),
+                    )
                     .child(Button::new("open-path").label("Open").on_click(cx.listener(
                         |this, _, w, c| {
                             this.open(this.path.read(c).value().to_string(), None, w, c)
@@ -2342,7 +2422,54 @@ impl Render for Workspace {
                         .min_h_0()
                         .overflow_y_scroll()
                         .child(feedback),
-                );
+                )
+                .child(if self.clear_queue_request.is_some() {
+                    h_flex()
+                        .p_2()
+                        .gap_1()
+                        .child(
+                            Button::new("confirm-clear")
+                                .label("Confirm clear comments")
+                                .on_click(
+                                    cx.listener(|this, _, w, c| this.clear_review_comments(w, c)),
+                                ),
+                        )
+                        .child(
+                            Button::new("cancel-clear")
+                                .label("Cancel")
+                                .on_click(cx.listener(|this, _, _, c| {
+                                    this.clear_queue_request = None;
+                                    c.notify();
+                                })),
+                        )
+                } else {
+                    h_flex()
+                        .p_2()
+                        .gap_1()
+                        .child(
+                            Button::new("discard-draft")
+                                .small()
+                                .label("Discard draft")
+                                .on_click(cx.listener(|this, _, w, c| {
+                                    this.comment.update(c, |s, c| s.set_value("", w, c));
+                                    this.anchor = None;
+                                    this.editing = None;
+                                    this.remember(c);
+                                    c.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("clear-comments")
+                                .small()
+                                .label("Clear comments…")
+                                .disabled(self.queue.comments.is_empty())
+                                .on_click(cx.listener(|this, _, _, c| {
+                                    this.clear_queue_request =
+                                        this.snapshot.as_ref().map(|s| s.queue_id.clone());
+                                    c.notify();
+                                })),
+                        )
+                });
         root = root
             .child(
                 div().flex_1().min_h_0().child(
@@ -2358,21 +2485,26 @@ impl Render for Workspace {
                                 .size_range(px(400.)..px(4000.))
                                 .child(center.size_full()),
                         )
-                        .child(
-                            resizable_panel()
-                                .size(px(self.preferences.sidebar_widths.feedback as f32))
-                                .size_range(px(260.)..px(640.))
-                                .child(feedback_panel),
-                        )
+                        .when(self.feedback_visible, |row| {
+                            row.child(
+                                resizable_panel()
+                                    .size(px(self.preferences.sidebar_widths.feedback as f32))
+                                    .size_range(px(260.)..px(640.))
+                                    .child(feedback_panel),
+                            )
+                        })
                         .on_resize(cx.listener(
                             |this, state: &Entity<ResizableState>, window, cx| {
                                 let sizes = state.read(cx).sizes();
-                                if sizes.len() != 3 {
+                                if sizes.len() < 2 {
                                     return;
                                 }
                                 let widths = SidebarWidths {
                                     files: (f32::from(sizes[0]) as u32).clamp(180, 600),
-                                    feedback: (f32::from(sizes[2]) as u32).clamp(260, 640),
+                                    feedback: sizes
+                                        .get(2)
+                                        .map(|s| (f32::from(*s) as u32).clamp(260, 640))
+                                        .unwrap_or(this.preferences.sidebar_widths.feedback),
                                 };
                                 this.preferences.sidebar_widths = widths.clone();
                                 let core = this.core.clone();

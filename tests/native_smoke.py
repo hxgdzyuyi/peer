@@ -5,6 +5,7 @@ Never run on a desktop being used by another person (this sends mouse/keyboard i
 """
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import time
 binary = Path(sys.argv[1] if len(sys.argv) > 1 else 'target/debug/peer').resolve()
 output = Path(sys.argv[2] if len(sys.argv) > 2 else 'test-results/native-smoke').resolve()
 output.mkdir(parents=True, exist_ok=True)
+(output / 'result.json').unlink(missing_ok=True)
 work = tempfile.TemporaryDirectory(prefix='peer-native-smoke-')
 root = Path(work.name) / 'repository'
 store = Path(work.name) / 'store'
@@ -64,7 +66,10 @@ def start(with_path=True):
             return []
     wait('native-window-created', find_window)
     window = find_window()[0]
-    run('xdotool', 'windowfocus', '--sync', window)
+    run('xprop', '-id', window, '-f', '_MOTIF_WM_HINTS', '32c', '-set', '_MOTIF_WM_HINTS', '2, 0, 0, 0, 0')
+    run('xdotool', 'windowmove', window, '0', '0', 'windowsize', window, '1440', '900', 'windowfocus', '--sync', window)
+    run('wmctrl', '-i', '-r', hex(int(window)), '-b', 'add,fullscreen')
+    run('wmctrl', '-i', '-a', hex(int(window)))
     wait('repository-opened', lambda: state().get('preferences', {}).get('lastRepository') == str(root))
     time.sleep(.8)
 
@@ -78,7 +83,8 @@ def type_at(x, y, text, clear=False):
     run('xdotool', 'type', '--clearmodifiers', '--delay', '18', text)
 
 def screenshot(name):
-    time.sleep(.6)
+    run('xdotool', 'mousemove', '1435', '890')
+    time.sleep(1)
     run('import', '-window', 'root', str(output / f'{name}.png'))
 
 def comments():
@@ -143,6 +149,78 @@ try:
     screenshot('06-outdated')
     type_at(450, 24, str(root / 'missing'), clear=True); run('xdotool', 'key', 'Return'); screenshot('07-invalid-root')
     type_at(450, 24, str(root), clear=True); run('xdotool', 'key', 'Return'); screenshot('08-recovered')
+    click(1395, 24); time.sleep(.4)
+    screenshot('09-settings-appearance')
+    click(390, 111); time.sleep(.2)
+    click(454, 164); click(454, 208); click(680, 251)
+    screenshot('10-settings-viewer')
+    click(490, 111); time.sleep(.2)
+    click(340, 199)
+    type_at(700, 365, '/usr/bin/python3', clear=True)
+    screenshot('11-settings-navigation')
+    click(589, 111); time.sleep(.2)
+    type_at(550, 195, '/usr/bin/git', clear=True)
+    screenshot('12-settings-git')
+    click(307, 835)
+    wait('native-viewer-controls-saved', lambda: state()['preferences']['codeFontSize'] == 13 and state()['preferences']['tabWidth'] == 5 and state()['preferences']['showWhitespace'])
+    wait('native-git-control-saved', lambda: state()['preferences']['gitExecutable'] == '/usr/bin/git')
+    wait('native-navigation-controls-saved', lambda: not state()['preferences']['languageServers'][0]['enabled'] and next(s for s in state()['preferences']['languageServers'] if s['id'] == 'python')['settings']['python']['pythonPath'] == '/usr/bin/python3')
+    click(1395, 24); time.sleep(.3)
+    type_at(500, 207, 'Dracula', clear=True); screenshot('13-theme-search')
+    click(375, 444); time.sleep(.3)
+    click(307, 835)
+    wait('theme-selection-saved', lambda: state()['preferences']['appearance']['darkTheme'] == 'dracula')
+    quit_app(); start(with_path=False)
+    wait('native-settings-restart', lambda: state()['preferences']['codeFontSize'] == 13 and state()['preferences']['appearance']['darkTheme'] == 'dracula')
+    # Quick-open must bring keyboard candidates beyond the first viewport into view.
+    (root / 'quick').mkdir()
+    for i in range(75): (root / 'quick' / f'file{i:03}.txt').write_text(''.join(f'column{n:03} ' for n in range(100)) + '\n')
+    (root / 'binary.dat').write_bytes(b'\x00\x01binary')
+    (root / 'link.txt').symlink_to('a.rs')
+    (root / 'deferred.txt').write_text('deferred source\n' * 22000)
+    git('mv', 'b.txt', 'renamed.txt')
+    module=root/'module';module.mkdir()
+    run('git','-C',str(module),'init');run('git','-C',str(module),'config','user.name','Native smoke');run('git','-C',str(module),'config','user.email','native@example.invalid')
+    (module/'source.txt').write_text('submodule source\n')
+    run('git','-C',str(module),'add','.');run('git','-C',str(module),'commit','-m','Submodule fixture')
+    git('update-index', '--add', '--cacheinfo', '160000,' + run('git','-C',str(module),'rev-parse','HEAD').strip() + ',module')
+    blobs=[]
+    for value in ['base\n','ours\n','theirs\n']:
+        blobs.append(subprocess.run(['git','-C',str(root),'hash-object','-w','--stdin'],input=value,text=True,check=True,stdout=subprocess.PIPE).stdout.strip())
+    subprocess.run(['git','-C',str(root),'update-index','--index-info'],input=''.join(f'100644 {blob} {stage}\tconflict.txt\n' for stage,blob in enumerate(blobs,1)),text=True,check=True)
+    (root / 'conflict.txt').write_text('<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n')
+
+    click(1248, 24); time.sleep(1)
+    type_at(120, 118, 'quick/', clear=True)
+    run('xdotool', 'key', '--repeat', '50', '--delay', '25', 'Down')
+    def candidate_visible():
+        screenshot('14-keyboard-candidate-visible')
+        return re.search(r'file[0O][5S][0O]', run('tesseract', str(output / '14-keyboard-candidate-visible.png'), 'stdout'))
+    wait('quick-open-candidate-pixels', candidate_visible)
+    run('xdotool', 'key', 'Return')
+    wait('keyboard-quick-open-beyond-viewport', lambda: state()['preferences']['sessions'][str(root)]['selectedPath'] == 'quick/file050.txt')
+    screenshot('15-long-line')
+    click(700, 230)
+    run('xdotool', 'key', '--repeat', '12', '--delay', '40', 'Right')
+    time.sleep(.4)
+    screenshot('15b-horizontal-scrolled')
+    quit_app()
+    wait('horizontal-scroll-persisted', lambda: any(abs(v.get('horizontal', 0)) > 0 for v in state().get('nativeState', {}).values()))
+    saved_horizontal = next(v['horizontal'] for k,v in state()['nativeState'].items() if 'file050' in k)
+    start(with_path=False); screenshot('16-horizontal-restored')
+    quit_app()
+    assert next(v['horizontal'] for k,v in state()['nativeState'].items() if 'file050' in k) == saved_horizontal
+    checks.append('horizontal-scroll-restored-after-layout')
+    start(with_path=False)
+    for query in ['binary.dat','link.txt','renamed.txt','module','conflict.txt','deferred.txt']:
+        type_at(120, 118, query, clear=True); run('xdotool', 'key', 'Return')
+        wait('special-file-' + query, lambda query=query: state()['preferences']['sessions'][str(root)]['selectedPath'] == query)
+        screenshot('17-' + query)
+    click(680,215)
+    time.sleep(1)
+    screenshot('18-explicit-large-source')
+    assert 'deferredsource' in re.sub(r'[^a-z]', '', run('tesseract', str(output / '18-explicit-large-source.png'), 'stdout').lower())
+    checks.append('large-source-explicitly-loaded')
     quit_app()
     (output / 'result.json').write_text(json.dumps({'passed': checks, 'scope': 'actual X11 window input plus persisted-state assertions; screenshots require visual inspection'}, indent=2))
     print(json.dumps({'passed': len(checks), 'output': str(output)}))

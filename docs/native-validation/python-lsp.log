@@ -1,7 +1,7 @@
-    Finished `test` profile [unoptimized] target(s) in 0.16s
-     Running tests/navigation.rs (/workspace/peer-core-target/debug/deps/navigation-726561100ff22934)
+    Finished `test` profile [unoptimized] target(s) in 0.38s
+     Running tests/navigation.rs (target/debug/deps/navigation-155944fae2cc0313)
 
 running 1 test
 test real_python_server_resolves_snapshot_imports_stubs_methods_and_references ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.14s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.72s

@@ -1,1 +1,10 @@
-{"passed": 23, "output": "/workspace/peer/docs/native-validation/smoke"}
+dbus-daemon[69294]: [session uid=1000 pid=69294 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=69300 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[69294]: [session uid=1000 pid=69294 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[69323]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=69300 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[69294]: [session uid=1000 pid=69294 pidfd=5] Activating service name='org.xfce.Xfconf' requested by ':1.2' (uid=1000 pid=69300 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[69294]: [session uid=1000 pid=69294 pidfd=5] Successfully activated service 'org.xfce.Xfconf'
+dbus-daemon[69323]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+{"passed": 45, "output": "/workspace/peer/docs/native-validation/smoke"}
+
+(xfconfd:69331): xfconfd-WARNING **: 14:01:48.647: Name org.xfce.Xfconf lost on the message dbus, exiting.

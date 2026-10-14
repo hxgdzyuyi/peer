@@ -1,55 +1,8 @@
-   Compiling serde_core v1.0.229
-   Compiling syn v3.0.6
-   Compiling smallvec v1.16.2
-   Compiling typenum v1.20.1
-   Compiling num-traits v0.2.19
-   Compiling syn v2.0.119
-   Compiling generic-array v0.14.7
-   Compiling rustix v1.1.5
-   Compiling crypto-common v0.1.7
-   Compiling block-buffer v0.10.4
-   Compiling serde_json v1.0.151
-   Compiling pest_generator v2.9.2
-   Compiling linux-raw-sys v0.12.1
-   Compiling form_urlencoded v1.2.2
-   Compiling pest_derive v2.9.2
-   Compiling digest v0.10.7
-   Compiling parking_lot_core v0.9.12
-   Compiling mio v1.2.4
-   Compiling once_cell v1.21.4
-   Compiling sha2 v0.10.9
-   Compiling synstructure v0.14.0
-   Compiling parking_lot v0.12.5
-   Compiling uuid v1.26.1
+   Compiling getrandom v0.3.4
    Compiling tempfile v3.27.0
-   Compiling similar v2.7.0
-   Compiling zerofrom-derive v0.1.8
-   Compiling yoke-derive v0.8.4
-   Compiling zerovec-derive v0.11.6
-   Compiling displaydoc v0.2.7
-   Compiling serde_derive v1.0.229
-   Compiling tokio-macros v2.7.2
-   Compiling zerofrom v0.1.8
-   Compiling yoke v0.8.3
-   Compiling zerovec v0.11.8
-   Compiling zerotrie v0.2.5
-   Compiling tokio v1.53.2
-   Compiling tinystr v0.8.4
-   Compiling potential_utf v0.1.6
-   Compiling icu_collections v2.3.0
-   Compiling icu_locale_core v2.3.0
-   Compiling icu_provider v2.3.1
-   Compiling icu_normalizer v2.3.0
-   Compiling icu_properties v2.3.0
-   Compiling serde v1.0.229
-   Compiling chrono v0.4.45
-   Compiling json5 v0.4.1
-   Compiling idna_adapter v1.2.2
-   Compiling idna v1.1.0
-   Compiling url v2.5.8
    Compiling peer-core v0.1.2 (/workspace/peer/crates/repo-core)
-    Finished `test` profile [unoptimized] target(s) in 12.00s
-     Running unittests src/lib.rs (target/debug/deps/peer_core-40bc87dabcd1313f)
+    Finished `test` profile [unoptimized] target(s) in 4.52s
+     Running unittests src/lib.rs (target/debug/deps/peer_core-addf787b7bc477ed)
 
 running 12 tests
 test lsp::tests::cancelling_an_analysis_wait_does_not_poison_later_navigation ... ok
@@ -65,20 +18,20 @@ test lsp::tests::other_server_errors_are_not_retried ... ok
 test lsp::tests::content_modified_retries_share_the_original_deadline ... ok
 test navigation::tests::sessions_documents_and_idle_retirement_are_bounded ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
 
-     Running tests/history.rs (target/debug/deps/history-52afac6798adb06c)
+     Running tests/history.rs (target/debug/deps/history-b0d2f851366c83aa)
 
 running 5 tests
 test historical_renames_deletions_and_binary_files_ignore_the_working_tree ... ok
 test merges_compare_to_first_parent_and_empty_commits_stay_empty ... ok
-test shallow_history_does_not_turn_a_normal_commit_into_an_initial_commit ... ok
 test commit_diff_and_feedback_use_frozen_parent_and_commit_contents ... ok
 test history_pages_are_pinned_to_the_branch_head_and_handle_unborn_and_detached_repos ... ok
+test shallow_history_does_not_turn_a_normal_commit_into_an_initial_commit ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
 
-     Running tests/navigation.rs (target/debug/deps/navigation-726561100ff22934)
+     Running tests/navigation.rs (target/debug/deps/navigation-155944fae2cc0313)
 
 running 12 tests
 test configured_server_runtime_path_is_authoritative_under_finder_path ... ok
@@ -94,14 +47,14 @@ test source_is_frozen_and_working_inventory_drift_requires_refresh ... ok
 test utf16_renames_and_missing_servers ... ok
 test navigation_recovers_from_analysis_invalidated_by_opening_documents ... ok
 
-test result: ok. 10 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.83s
+test result: ok. 10 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.94s
 
-     Running tests/review.rs (target/debug/deps/review-bdb4854742d2c8d6)
+     Running tests/review.rs (target/debug/deps/review-93104d8db858d5d2)
 
 running 21 tests
 test branch_comparison_uses_merge_base_and_local_edits ... ok
-test branch_and_worktree_queue_identity_isolated ... ok
 test code_feedback_does_not_expire_when_identical_content_is_staged ... ok
+test branch_and_worktree_queue_identity_isolated ... ok
 test code_inventory_renames_binary_and_unborn_repository ... ok
 test editorconfig_and_theme_normalization ... ok
 test font_size_defaults_for_existing_stores_and_persists ... ok
@@ -110,18 +63,18 @@ test conflicts_and_large_files_have_safe_summaries ... ok
 test native_view_extension_survives_existing_preference_writes_and_restart ... ok
 test concise_exports_keep_locations_and_queue_contents_without_internal_metadata ... ok
 test comments_are_anchored_isolated_persistent_and_outdated ... ok
-test refresh_retries_a_snapshot_interrupted_by_an_index_update ... ok
 test invalid_relocation_does_not_replace_saved_repositories_or_reviews ... ok
+test refresh_retries_a_snapshot_interrupted_by_an_index_update ... ok
 test removed_file_comments_remain_exportable_without_line_coordinates ... ok
 test sidebar_widths_default_for_existing_stores_and_persist ... ok
-test refresh_retries_when_a_reviewed_file_changes_during_reconciliation ... ok
 test refresh_retries_are_bounded_without_discarding_feedback ... ok
+test refresh_retries_when_a_reviewed_file_changes_during_reconciliation ... ok
 test symlinks_and_unusual_names_remain_data ... ok
 test staged_unstaged_and_combined_are_distinct ... ok
 test relocating_repository_preserves_sessions_and_review_queues_after_restart ... ok
 test submodule_updates_and_deletions_have_file_comment_summaries ... ok
 
-test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
 
    Doc-tests peer_core
 

@@ -81,12 +81,13 @@ pub fn apply(theme: &ImportedTheme, font: u32, cx: &mut App) {
                         .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
                         .unwrap_or_default()
                 };
-                let Some(fg) = rule["settings"]["foreground"]
+                let fg = rule["settings"]["foreground"]
                     .as_str()
-                    .and_then(|c| Hsla::parse_hex(c).ok())
-                else {
+                    .and_then(|c| Hsla::parse_hex(c).ok());
+                let font = rule["settings"]["fontStyle"].as_str();
+                if fg.is_none() && font.is_none() {
                     continue;
-                };
+                }
                 for scope in scopes {
                     let key = if scope.starts_with("comment") {
                         "comment"
@@ -111,7 +112,31 @@ pub fn apply(theme: &ImportedTheme, font: u32, cx: &mut App) {
                     } else {
                         continue;
                     };
-                    syntax[key] = serde_json::json!({"color":fg});
+                    let mut style = syntax[key].as_object().cloned().unwrap_or_default();
+                    if let Some(fg) = fg {
+                        style.insert("color".into(), serde_json::to_value(fg).unwrap());
+                    }
+                    if let Some(font) = font {
+                        style.insert(
+                            "font_style".into(),
+                            if font.split_whitespace().any(|s| s == "italic") {
+                                "italic"
+                            } else {
+                                "normal"
+                            }
+                            .into(),
+                        );
+                        style.insert(
+                            "font_weight".into(),
+                            if font.split_whitespace().any(|s| s == "bold") {
+                                700
+                            } else {
+                                400
+                            }
+                            .into(),
+                        );
+                    }
+                    syntax[key] = style.into();
                 }
             }
         }

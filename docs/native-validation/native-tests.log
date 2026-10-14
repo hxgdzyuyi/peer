@@ -1,12 +1,12 @@
    Compiling peer v0.1.2 (/workspace/peer/crates/peer-native)
-    Finished `test` profile [unoptimized] target(s) in 2.25s
-     Running unittests src/main.rs (target/debug/deps/peer-fee53e480e340946)
+    Finished `test` profile [unoptimized] target(s) in 2.82s
+     Running unittests src/main.rs (target/debug/deps/peer-0b16e4fb9e080c4d)
 
 running 5 tests
-test workspace::tests::deferred_binary_and_empty_sources_do_not_invent_lines ... ok
 test storage_tests::legacy_storage_identifier_and_environment_precedence_are_preserved ... ok
+test workspace::tests::deferred_binary_and_empty_sources_do_not_invent_lines ... ok
 test workspace::tests::additions_deletions_and_renames_keep_absent_sides ... ok
 test workspace::tests::native_parser_accepts_real_old_new_source_and_quoted_paths ... ok
 test workspace::tests::multi_file_large_change_uses_actual_parser ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
