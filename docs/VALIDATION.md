@@ -2,6 +2,46 @@
 
 Reference machine: Apple M2, macOS 26.5.2 (25F84 / Darwin 25.5.0). The native app uses WKWebView with a configured 1440 × 940 window. The test-only configuration keeps its window above other windows to avoid occlusion-related rendering pauses; production windows retain normal behavior. Development tools: Rust 1.88 and Node.js 26.7.
 
+## tcsh/csh login-shell compatibility — 2026-10-14 JST
+
+PR #10's review identified that tcsh/csh cannot combine `-l` with the other shell flags. PATH discovery now selects login mode through a leading `-` in the executable's `argv[0]`, uses `-i`, and sends the framed PATH command through stdin. Avoiding `-c` also preserves tcsh's interactive startup state: the expanded regression caught that `-ic` leaves `prompt` unset and skips prompt-guarded PATH setup.
+
+The isolated all-preset navigation regression now runs separately under `/bin/zsh`, `/bin/bash`, `/bin/tcsh`, and `/bin/csh`. Server and child-runtime directories are supplied by separate login and interactive startup files; the csh fixture guards its runtime PATH with `$?prompt`. All four shell runs passed every definition/reference and PATH-override check. `cargo test -p peer-core --locked -- --nocapture` passed all 45 regular tests, with two opt-in suites ignored; Rust formatting passed.
+
+A standalone core-API smoke also launched real rust-analyzer under Finder-style PATH with tcsh and csh, using separate server and runtime directories from `.login` and the prompt-guarded `.cshrc`. Both resolved the first cross-file definition. Temporary smoke sources were removed. No fresh native GUI or hosted-CI run is claimed for this fix.
+
+## Language-server review fixes — 2026-10-14 JST
+
+PATH discovery now consumes the NUL-framed response incrementally, without requiring stdout EOF from background shell-startup jobs. The five-second deadline, 64 KiB read limit, successful shell exit check, and explicit `env.PATH` precedence remain in place. The existing all-preset regression now starts a background reader blocked on a FIFO, retaining stdout until test cleanup, and still requires every definition/reference and override check to pass.
+
+The generated Node launchers use dynamic `import()`. Their fixture directory explicitly selects CommonJS, so current Node versions cannot hide the Node 22.0–22.6 compatibility regression through automatic module detection.
+
+`cargo test -p peer-core --locked` passed all 45 regular tests, with the two opt-in real-server suites ignored. `cargo fmt --all -- --check` passed. A separate core-API smoke launched real rust-analyzer under Finder-style PATH and resolved a cross-file definition while the startup background reader was still alive. A standalone launcher smoke on Node 26.7.0, with CommonJS selected and syntax detection disabled, completed LSP initialization and definition lookup. This emulates the older Node parsing behavior; no Node 22.0–22.6 binary or fresh native GUI scenario was run for these review fixes.
+
+## Rust analysis readiness — 2026-10-14 JST
+
+A direct rust-analyzer protocol trace confirmed the intermittent empty-result race: the server returned `[]` for a cross-file function while reporting `quiescent: false`; the identical request returned its definition after `quiescent: true`. Peer previously ignored those notifications. Its opt-in Rust smoke test also retried empty responses during startup, hiding the first-request failure.
+
+The client now advertises `experimental.serverStatusNotification`, waits for rust-analyzer's first ready notification, and tracks readiness transitions across in-flight definition/reference requests. Results produced across an analysis transition are reissued within the same request deadline, even if the server is already ready again when the reply is consumed. Genuine empty results from a ready server are not retried. Initialization and shutdown are not gated; cancellation, timeouts, and server exits remain actionable.
+
+The startup regression failed before the implementation with `Query finished before analysis was ready: Ok(Array [])` and passed afterward. Four permanent protocol regressions cover the initial notification race, in-flight invalidation, genuine empty results, cancelled waiters, shared deadlines, and waking waiters when the server exits. The real Rust scenario now requires its first request and three subsequent cold server restarts to resolve without test-side polling.
+
+`cargo test -p peer-core --locked` passed all 45 regular tests. Both opt-in real-server suites passed, including Go, TypeScript, JavaScript, Python, and Rust. Rust formatting passed; Clippy completed with only the existing `repository.rs` `chunks_exact` warning.
+
+After `npm run build:test-app`, a native WKWebView smoke reopened a Rust workspace five times and issued exactly one F12 per cold open. Every first request opened the expected definition without user retries or a transient no-definitions result. The destination screenshot was inspected. The temporary native smoke spec was removed. This is local macOS verification, not an additional hosted-CI or older-WebKit run.
+
+## Language-server PATH recovery and preset coverage — 2026-10-14 JST
+
+The shared macOS stdio launcher now recovers the interactive login-shell `PATH` for every language server, rather than relying on Finder's restricted environment. Explicit server `env.PATH` values remain authoritative, including for absolute executables' child tools. Discovery is cached, bounded to five seconds and 64 KiB of output, and does not mutate the app's process environment.
+
+The permanent navigation regression runs in a subprocess with an isolated home and Finder-style `PATH`. It keeps all presets enabled and resolves definitions and references for every registered extension: Go; TypeScript/JavaScript including TSX, JSX, MTS, CTS, MJS, and CJS; Python and Python stubs; Rust; and a custom server. Each is exercised with shell discovery, an absolute executable, and an explicit `PATH`. It also checks missing-executable versus missing-runtime failures, override precedence after shell-path caching, startup banners, paths containing spaces, and unchanged parent `PATH`. Node shebang launchers model the npm servers; separate child-runtime launchers model native-server/toolchain lookup. These deterministic protocol fixtures are not semantic analyzers.
+
+`cargo test -p peer-core --locked` passed all 41 regular tests. Both opt-in real-server tests passed separately, covering Go, TypeScript, JavaScript, Rust, and Python semantic navigation.
+
+A standalone API smoke then launched real `gopls`, `typescript-language-server`, `pyright-langserver`, and `rust-analyzer` by their default executable names under Finder-style `PATH`. An isolated login-shell profile supplied the installed tool locations. Cross-file definitions and references resolved for all five languages; source files and Git indexes remained unchanged. Existing cached TypeScript 5.9.3/typescript-language-server 5.0.1 and Pyright 1.1.407 installations were reused without installing global tools. The temporary smoke program was removed.
+
+The preceding native WKWebView smoke also exercised F12 with real rust-analyzer under Finder-style `PATH`, inspected the destination screenshot, and verified the visible error for an actually missing server. The all-language follow-up used the core API, not five additional UI scenarios. Verification is local on macOS; no new GitHub-hosted run is claimed.
+
 ## Split-diff scrollbar command race — 2026-10-13 JST
 
 [Run 38385845221](https://github.com/lantern24/peer/actions/runs/38385845221/job/115257311625) failed the narrow-window scenario while waiting for Home to return every code column to zero. The uploaded artifacts show that unified mode completed and the failure occurred in split mode. The renderer's split-scroll manager retains a code-side scroll leader for 300 ms, while Peer's scrollbar previously wrote only the wider column; a previous leader could ignore or undo the command.
