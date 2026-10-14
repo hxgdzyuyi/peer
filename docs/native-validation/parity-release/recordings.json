@@ -1,0 +1,42 @@
+[
+  {
+    "path": "review/interaction.mp4",
+    "sha256": "9649682487d9213d465cec499d643ac44b3ec29b44e8152c0d47d7547921c6ba",
+    "full_decode": "passed",
+    "capture": "unedited actual X11 native input; synthetic test fixture",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "70.666667"
+      }
+    }
+  },
+  {
+    "path": "navigation/interaction.mp4",
+    "sha256": "7e539f5d6ee848337c5442d28e6163b291b200989fed996fa0548d11880b48aa",
+    "full_decode": "passed",
+    "capture": "unedited actual X11 native input; synthetic test fixture",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "65.600000"
+      }
+    }
+  }
+]

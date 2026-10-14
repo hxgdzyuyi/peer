@@ -2,6 +2,13 @@
 
 Baseline: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`, independently checked against upstream main. Implementation branch: `native/gpui-migration`. Historical WebView results are isolated in [VALIDATION-WEBVIEW-BASELINE.md](VALIDATION-WEBVIEW-BASELINE.md); none count as native acceptance.
 
+## Review safety and workflow follow-up
+
+[The subsequent parity report](NATIVE-PARITY-FOLLOWUP.md) maps the independent
+review's eleven source findings and two runtime risks to implemented fixes and
+new native-window evidence. Its final result files supersede earlier assumptions
+about draft isolation, anchors, navigation history and workflow completeness.
+
 ## File-tree follow-up
 
 The user's desktop video review subsequently identified gaps in the original
@@ -58,7 +65,7 @@ The numeric screenshots retain intermediate investigation, including the initial
 
 ## Limits and remaining differences
 
-- Linux evidence does **not** validate macOS 15+ menus, IME, native dialogs, packaging, ad-hoc signing, notarization or installation. A macOS bundle script and CI job exist but were not executed here. No hosted CI, release, merge or remote push is claimed.
+- Linux evidence does **not** validate macOS 15+ menus, IME, native dialogs, packaging, ad-hoc signing, notarization or installation. A macOS bundle script and CI job exist but were not executed here. No hosted CI, release or merge is claimed; native work is delivered on the migration branch.
 - Real LSP window coverage is Python; the real-server core suite additionally exercised Go, TypeScript, JavaScript and Rust. Server installations are external tools, not bundled app dependencies.
 - No controlled 100 ms startup/input or 33 ms frame-time gate was measured. Software-rendered large-diff interaction is functional evidence, not a latency benchmark. Generation guards reject stale results; already-running CPU diff work is bounded rather than instantly terminated.
 - Native settings now include normal form controls, theme search/previews, import/removal, per-server enable/executable and Python interpreter. Native Save/Cancel is an explicit transaction; the original appearance form applied some choices immediately. Advanced custom-server JSON is optional.

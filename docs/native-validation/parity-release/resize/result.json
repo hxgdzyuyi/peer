@@ -1,0 +1,16 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "keyboard-right-resizes",
+    "shift-arrow-resizes",
+    "home-minimum",
+    "end-maximum",
+    "double-click-resets",
+    "drag-persists",
+    "escape-restores-pre-drag-width",
+    "native-window-created",
+    "repository-opened",
+    "resize-restored-after-restart"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "method": "Actual X11 input baseline probe before replacing the resizable handle",
+  "status": "baseline failure, not final acceptance",
+  "observed": "Dragging changed width; Right and double-click left width unchanged.",
+  "source_base": "1dbfa7a5c8223273a79ea5e498c2ed3bbf63d8c0",
+  "source_state": "Working tree before divider replacement; other follow-up changes were in progress. No exact binary hash was captured for this diagnostic probe."
+}

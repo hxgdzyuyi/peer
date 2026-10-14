@@ -1,0 +1,32 @@
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.169: Document portal fuse mount point unknown: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.portal.Documents was not provided by any .service files
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.169: Choosing gtk.portal for org.freedesktop.impl.portal.Lockdown via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.169: The preferred method to match portal implementations to desktop environments is to use the portals.conf(5) configuration file
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.201: Failed to create RealtimeKit proxy: Could not connect: No such file or directory
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.201: Choosing gtk.portal for org.freedesktop.impl.portal.Settings via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.203: Choosing gtk.portal for org.freedesktop.impl.portal.FileChooser via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.203: Choosing gtk.portal for org.freedesktop.impl.portal.AppChooser via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.204: Choosing gtk.portal for org.freedesktop.impl.portal.Print via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.227: Choosing gtk.portal for org.freedesktop.impl.portal.Notification via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.229: Choosing gtk.portal for org.freedesktop.impl.portal.Inhibit via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.231: Choosing gtk.portal for org.freedesktop.impl.portal.Access via the deprecated UseIn key
+[W][17:12:13.236681] pw.conf      | [          conf.c: 1182 try_load_conf()] can't load config client.conf: No such file or directory
+[E][17:12:13.236699] pw.conf      | [          conf.c: 1215 pw_conf_load_conf_for_context()] can't load config client.conf: No such file or directory
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.236: Failed connect to PipeWire: Couldn't create PipeWire context
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.244: Choosing gtk.portal for org.freedesktop.impl.portal.Account via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.252: Choosing gtk.portal for org.freedesktop.impl.portal.Email via the deprecated UseIn key
+
+(/workspace/peer-native-sdk/usr/libexec/xdg-desktop-portal:243966): xdg-desktop-portal-WARNING **: 17:12:13.253: Choosing gtk.portal for org.freedesktop.impl.portal.DynamicLauncher via the deprecated UseIn key

@@ -227,6 +227,7 @@ pub(crate) struct CodeText {
     range: Range<usize>,
     highlights: Vec<(Range<usize>, HighlightStyle)>,
     selection: TextSelectionHandle,
+    restored_selection: Option<(usize, DiffSide, Range<usize>)>,
     geometry: Rc<RefCell<SelectionGeometry>>,
     styled_text: Option<StyledText>,
 }
@@ -242,6 +243,7 @@ impl CodeText {
         range: Range<usize>,
         highlights: Vec<(Range<usize>, HighlightStyle)>,
         selection: TextSelectionHandle,
+        restored_selection: Option<(usize, DiffSide, Range<usize>)>,
         geometry: Rc<RefCell<SelectionGeometry>>,
     ) -> Self {
         Self {
@@ -253,6 +255,7 @@ impl CodeText {
             range,
             highlights,
             selection,
+            restored_selection,
             geometry,
             styled_text: None,
         }
@@ -284,7 +287,10 @@ impl Element for CodeText {
     ) -> (LayoutId, ()) {
         let line = &self.document.lines(self.side)[self.line_ix];
         let mut layers = self.highlights.clone();
-        if let Some((file, side, range)) = selected_source_range(&self.selection, cx)
+        if let Some((file, side, range)) = self
+            .restored_selection
+            .clone()
+            .or_else(|| selected_source_range(&self.selection, cx))
             && file == self.file
             && side == self.side
         {

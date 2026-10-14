@@ -1,0 +1,22 @@
+{
+  "profile": "release",
+  "platform": "Linux x86_64",
+  "binary_sha256": "521b9e77d09357ee170977b7d1e83f848490862a5f6cdde10a85431a743f6033",
+  "component": "longbridge/gpui-kit v0.7.3",
+  "pinned_revision": "67265a36e260ffe03c5aaebdcd8d654dbf892eab",
+  "local_component_patch": "vendor/gpui-component/PEER-PATCH.md",
+  "active_dependency_graph_excludes": [
+    "Tauri app runtime",
+    "Wry",
+    "WebKit",
+    "WebView",
+    "React"
+  ],
+  "core": "crates/repo-core remains independent and unchanged in this follow-up",
+  "windows_lock_note": "The lockfile retains upstream Windows-only tauri-winrt-notification; this is not the Tauri app framework. See earlier validation audit.",
+  "executed": [
+    "cargo tree --locked -p peer -e normal",
+    "ldd target/release/peer"
+  ],
+  "source_reference": "The containing commit is mapped to this executable in /workspace/peer-native-delivery.json."
+}

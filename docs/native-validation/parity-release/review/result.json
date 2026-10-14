@@ -1,0 +1,26 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "comment-anchor-remains-old-line-2",
+    "cancel-edit-restores-new-draft",
+    "discard-edit-preserves-new-draft",
+    "edit-save-updates-existing",
+    "edit-save-restores-new-draft",
+    "draft-restored-after-file-switch",
+    "native-window-created",
+    "repository-opened",
+    "legacy-draft-survives-restart",
+    "stale-draft-submit-blocked",
+    "explicit-reattach-saves-preserved-body",
+    "multi-file-draft-restored",
+    "multi-file-edit-identity-restored",
+    "multi-file-cancel-restores-new-draft",
+    "rapid-save-switch-does-not-duplicate",
+    "submitted-draft-not-resurrected",
+    "history-button-closes",
+    "history-escape-closes",
+    "reverse-find-starts-at-last-match",
+    "find-change-and-clear-live"
+  ]
+}

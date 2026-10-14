@@ -94,6 +94,17 @@ def rendered(phrase):
         if phrase.lower() in run('tesseract',str(output/'ready-controls.png'),'stdout').lower(): return
     raise AssertionError('Rendered control did not appear: '+phrase)
 
+def button(label):
+    import csv,io
+    screenshot('controls')
+    words=[r for r in csv.DictReader(io.StringIO(run('tesseract',str(output/'controls.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE) if r.get('text','').strip()]
+    wanted=[re.sub(r'[^a-z0-9]','',w.lower()) for w in label.split()]
+    for i in reversed(range(len(words)-len(wanted)+1)):
+        rows=words[i:i+len(wanted)]
+        if [re.sub(r'[^a-z0-9]','',r['text'].lower()) for r in rows]==wanted:
+            r=rows[0];click(int(r['left'])+int(r['width'])//2,int(r['top'])+int(r['height'])//2);return
+    raise AssertionError('Missing button '+label)
+
 def comments():
     return [c for q in state().get('queues', {}).values() for c in q['comments']]
 
@@ -108,19 +119,19 @@ def quit_app():
 try:
     start()
     screenshot('01-source')
-    click(405, 231)  # Original source line 2; not a row index passed to the service.
+    click(405, 231); button('Line scope')  # Original source line 2; not a row index passed to the service.
     type_at(1200, 210, 'Native smoke old-side comment')
     click(1200, 310)
     wait('old-line-comment-saved', lambda: any(c['body'] == 'Native smoke old-side comment' and c['anchor'].get('side') == 'old' and c['anchor'].get('line') == 2 for c in comments()))
     click(1170, 416)
-    type_at(1200, 210, 'Edited native comment', clear=True); click(1200, 310)
+    type_at(1200, 210, 'Edited native comment', clear=True); run('xdotool','key','ctrl+Return')
     wait('comment-edit-saved', lambda: any(c['body'] == 'Edited native comment' for c in comments()))
     click(1225, 416)
     wait('comment-deleted', lambda: not comments())
-    click(405, 231)
+    click(405, 231); button("Line scope")
     type_at(1200, 210, 'Native smoke old-side comment'); click(1200, 310)
     wait('old-comment-recreated', lambda: any(c['body'] == 'Native smoke old-side comment' and c['anchor'].get('side') == 'old' for c in comments()))
-    click(410, 313)
+    click(410, 313); button("Line scope")
     type_at(1200, 210, 'Native smoke new-side comment'); click(1200, 310)
     wait('new-line-comment-saved', lambda: any(c['body'] == 'Native smoke new-side comment' and c['anchor'].get('side') == 'new' and c['anchor'].get('line') == 2 for c in comments()))
     click(1300, 310)
@@ -140,7 +151,7 @@ try:
     wait('comparison-branch', lambda: comparison().get('mode') == 'branch')
     type_at(400, 72, git('rev-parse', 'HEAD').strip(), clear=True); click(690, 72)
     wait('comparison-commit', lambda: comparison().get('mode') == 'commit')
-    click(110, 72); wait('return-to-working-tree', lambda: comparison().get('mode') == 'all')
+    click(110, 72); wait('return-to-working-tree', lambda: comparison().get('mode') == 'all' and comparison().get('includeUntracked')==True)
     for i in range(12): click(190 if i % 2 else 270, 72)
     click(110, 72); wait('rapid-switch-final-state', lambda: comparison().get('mode') == 'all')
     type_at(380, 118, 'new', clear=True); run('xdotool', 'key', 'Return'); screenshot('04-search')

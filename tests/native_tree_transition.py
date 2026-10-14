@@ -44,7 +44,7 @@ def words(inverted=False):
     path=shot('latest')
     if inverted:
         run('convert',str(path),'-negate',str(out/'ocr-inverted.png'));path=out/'ocr-inverted.png'
-    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t')
+    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE)
     return [r for r in rows if r.get('text','').strip()]
 def norm(s): return re.sub(r'[^a-z0-9]','',s.lower())
 def click_text(label,last=False):

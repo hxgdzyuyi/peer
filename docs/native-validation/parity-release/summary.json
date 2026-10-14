@@ -1,0 +1,45 @@
+{
+  "finished_utc": "2026-10-14T17:17:51.364433+00:00",
+  "original_reference": "72e854cd1a3c5bcb6d2e6de539cc6caa90c49959",
+  "followup_base": "1dbfa7a5c8223273a79ea5e498c2ed3bbf63d8c0",
+  "binary_sha256": "521b9e77d09357ee170977b7d1e83f848490862a5f6cdde10a85431a743f6033",
+  "build": "cargo build --locked --release -p peer",
+  "workspace_tests": {
+    "passed": 61,
+    "ignored": 2,
+    "failed": 0,
+    "native": 13,
+    "core": 48,
+    "ignored_note": "Opt-in real-server core suites; prior real-server results are retained in docs/native-validation. This follow-up executes real Pyright window suites."
+  },
+  "window_assertions": {
+    "review": 22,
+    "navigation": 17,
+    "gestures": 10,
+    "resize": 12,
+    "history": 7,
+    "smoke": 46,
+    "desktop": 30,
+    "navigation-regression": 9,
+    "errors": 5,
+    "tree": 28,
+    "transition": 6
+  },
+  "window_total": 192,
+  "method": "Actual native X11 executable; mouse and keyboard input, OCR/pixels, clipboard and isolated persistent state. Named assertion counts include setup and lifecycle checks.",
+  "visual_review": [
+    "review/02-stale-draft-visible.png",
+    "smoke/06-outdated.png",
+    "tree/10-multifile-scroll-sync.png",
+    "tree/11-filter-focus-preserved.png",
+    "navigation/03-loaded-target-range.png",
+    "gestures/02-context-menu.png",
+    "gestures/05-expanded-context-restored.png",
+    "resize/02-resize-restarted.png"
+  ],
+  "not_verified": [
+    "macOS 15+ execution, menus, Cmd gestures, IME, signing, packaging",
+    "Independent desktop retest by parent",
+    "Controlled latency/frame-time benchmark"
+  ]
+}

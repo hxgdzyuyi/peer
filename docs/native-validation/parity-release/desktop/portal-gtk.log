@@ -1,0 +1,17 @@
+
+(xdg-desktop-portal-gtk:243965): xdg-desktop-portal-gtk-WARNING **: 17:12:13.329: error: Could not connect: No such file or directory
+
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:19.149: Attempting to store changes into '/home/agent/.local/share/recently-used.xbel', but failed: Failed to create file “/home/agent/.local/share/recently-used.xbel.1TI4W3”: Read-only file system
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:19.149: Attempting to set the permissions of '/home/agent/.local/share/recently-used.xbel', but failed: No such file or directory
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:28.309: Attempting to store changes into '/home/agent/.local/share/recently-used.xbel', but failed: Failed to create file “/home/agent/.local/share/recently-used.xbel.N8D0W3”: Read-only file system
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:28.309: Attempting to set the permissions of '/home/agent/.local/share/recently-used.xbel', but failed: No such file or directory
+
+(xdg-desktop-portal-gtk:243965): Gtk-CRITICAL **: 17:12:32.756: gtk_widget_event: assertion 'WIDGET_REALIZED_FOR_EVENT (widget, event)' failed
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:34.721: Attempting to store changes into '/home/agent/.local/share/recently-used.xbel', but failed: Failed to create file “/home/agent/.local/share/recently-used.xbel.EMKRW3”: Read-only file system
+
+(xdg-desktop-portal-gtk:243965): Gtk-WARNING **: 17:12:34.721: Attempting to set the permissions of '/home/agent/.local/share/recently-used.xbel', but failed: No such file or directory

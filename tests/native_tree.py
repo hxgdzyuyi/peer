@@ -44,7 +44,7 @@ def words(inverted=False):
     path=shot('latest')
     if inverted:
         run('convert',str(path),'-negate',str(out/'ocr-inverted.png'));path=out/'ocr-inverted.png'
-    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t')
+    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE)
     return [r for r in rows if r.get('text','').strip()]
 def norm(s): return re.sub(r'[^a-z0-9]','',s.lower())
 def click_text(label,last=False):
@@ -96,7 +96,7 @@ path=root/longpath;path.parent.mkdir(parents=True,exist_ok=True);path.write_text
 (root/'many').mkdir()
 for i in range(1000):(root/'many'/f'file{i:04}.rs').write_text(f'source {i}\n')
 def tree_text():
-    shot('tree-latest');run('convert',str(out/'tree-latest.png'),'-crop','244x668+0+168',str(out/'tree-crop.png'))
+    shot('tree-latest');run('convert',str(out/'tree-latest.png'),'-crop','244x668+0+168','-resize','200%',str(out/'tree-crop.png'))
     return norm(run('tesseract',str(out/'tree-crop.png'),'stdout','--psm','6'))
 def selected():return state().get('preferences',{}).get('sessions',{}).get(str(root),{}).get('selectedPath')
 def choose(query):
@@ -122,10 +122,10 @@ try:
         recorder=subprocess.Popen(['ffmpeg','-y','-f','x11grab','-video_size','1440x900','-framerate','15','-i',os.environ['DISPLAY'],'-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-movflags','+faststart',str(out/'tree-interaction.mp4')],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=(out/'recording.log').open('w'))
     if not os.getenv('PEER_TREE_WHEEL_ONLY'):
         choose('app/components/card.rs');clear_filter();shot('01-rich-tree')
-        assert 'cardrs' in tree_text();checks.append('selected-tree-row-visible')
+        wait('selected-tree-row-visible',lambda:'cardrs' in tree_text())
         click(400,211);enter(1200,210,'Tree comment indicator');click(1200,310);click(1200,115);time.sleep(.7);shot('01b-comment-reviewed-icons')
         # Collapse and use real four-way tree keyboard operations.
-        click(65,184);shot('02-collapsed-app');assert 'cardrs' not in tree_text();checks.append('folder-collapse-hides-descendants')
+        click(65,184);shot('02-collapsed-app');wait('folder-collapse-hides-descendants',lambda:'cardrs' not in tree_text())
         key('Right');assert 'cardrs' in tree_text();checks.append('right-expands-directory')
         key('Right');key('Left');assert 'cardrs' not in tree_text();checks.append('left-collapses-child-directory')
         key('Right');key('Down')
@@ -152,10 +152,19 @@ try:
         click(110,820);key('Left');shot('08-parent-focused');key('Right');key('End')
         wait('keyboard-end-opens-last-file',lambda:selected()=='z-notes.txt');shot('09-keyboard-end');key('Up');wait('keyboard-up-opens-previous-file',lambda:selected()=='added.txt');key('Down');wait('keyboard-down-opens-next-file',lambda:selected()=='z-notes.txt')
     # Multi-file scrolling drives selection, without jumping the Diff back.
-    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'));before_scroll=selected()
+    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'));before_scroll=selected();click(120,142)  # Keep the filter focused while the Diff scrolls.
     run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','5');time.sleep(1)
     wait('multifile-wheel-updates-selected',lambda:selected()!=before_scroll and selected() is not None)
     shot('10-multifile-scroll-sync')
+    active=selected()
+    run('xdotool','type','--clearmodifiers','file002')
+    shot('11-filter-focus-preserved');assert 'file002' in run('tesseract',str(out/'11-filter-focus-preserved.png'),'stdout');checks.append('scroll-keeps-filter-focus')
+    clear_filter();enter(1200,210,'Visible multi-file target');click(1200,310)
+    wait('comment-target-follows-visible-file',lambda:any(c['body']=='Visible multi-file target' and c['path']==active for q in state()['queues'].values() for c in q['comments']))
+    click(1200,116);wait('reviewed-target-follows-visible-file',lambda:any(active in q['reviewed'] for q in state()['queues'].values()))
+    click(120,142);run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','4');time.sleep(1)
+    wait('reverse-scroll-updates-active-file',lambda:selected()!=active);shot('12-reverse-scroll-sync')
+
     key('ctrl+q');process.wait(timeout=15);assert process.returncode==0
     (out/'result.json').write_text(json.dumps({'passed':checks,'files':1009,'method':'native keyboard/mouse + OCR + persistent state; screenshots visually inspected'},indent=2))
     print(json.dumps({'passed':len(checks)}))

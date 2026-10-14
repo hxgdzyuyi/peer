@@ -14,7 +14,7 @@ pub use conflict::{DiffConflict, DiffConflictResolution};
 pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
 pub use parser::DiffParseError;
 pub use presentation::DiffInlineUnit;
-pub use state::{DiffEvent, DiffState};
+pub use state::{DiffCheckpoint, DiffEvent, DiffState};
 
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
@@ -539,6 +539,7 @@ fn render_diff(
         on_line_click: props.on_line_click,
         on_line_hover: props.on_line_hover,
         selection: state.selection().clone(),
+        restored_selection: state.source_selection(cx),
         selected_lines: state.selected_lines(),
         selected: state.selected_span(),
         geometry: state.geometry().clone(),
@@ -773,6 +774,7 @@ struct CodePresentation {
     on_line_click: Option<ClickHandler>,
     on_line_hover: Option<HoverHandler>,
     selection: gpui_base::TextSelectionHandle,
+    restored_selection: Option<(usize, DiffSide, std::ops::Range<usize>)>,
     selected_lines: Option<DiffLineRange>,
     selected: Option<SelectedLines>,
     geometry: Rc<std::cell::RefCell<selection::SelectionGeometry>>,
@@ -1614,8 +1616,10 @@ fn code_line(
     // the side a text selection started on so its offsets stay consistent.
     let (text_side, text_ix) = if code.mode == DiffMode::Unified
         && !changed
-        && let Some((selected_file, selected_side, _)) =
-            selection::selected_source_range(&code.selection, cx)
+        && let Some((selected_file, selected_side, _)) = code
+            .restored_selection
+            .clone()
+            .or_else(|| selection::selected_source_range(&code.selection, cx))
         && selected_file == file
         && selected_side != side
         && let Some(other_ix) = line.counterpart()
@@ -1652,6 +1656,7 @@ fn code_line(
                 range,
                 highlights.clone(),
                 code.selection.clone(),
+                code.restored_selection.clone(),
                 code.geometry.clone(),
             )
         }));

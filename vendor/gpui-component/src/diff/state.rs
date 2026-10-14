@@ -202,6 +202,18 @@ impl SelectedLines {
 /// Create once in the owning view. Mutations notify observers; the application
 /// owns the patch and chooses when to install new files. Syntax and inline
 /// emphasis are prepared on a background thread and appear once ready.
+#[derive(Clone)]
+pub struct DiffCheckpoint {
+    files: Vec<DiffFile>,
+    expanded: Vec<Vec<Range<usize>>>,
+    collapsed: HashSet<SharedString>,
+    context_lines: Option<usize>,
+    selected_lines: Option<DiffLineRange>,
+    source_selection: Option<(usize, DiffSide, Range<usize>)>,
+    viewport: Option<(DiffLinePosition, f32)>,
+    horizontal: f32,
+}
+
 pub struct DiffState {
     files: Vec<DiffFile>,
     /// Each path's index in `files`; the first file wins a duplicated path.
@@ -221,6 +233,7 @@ pub struct DiffState {
     horizontal_scroll: ScrollHandle,
     focus: FocusHandle,
     selection: TextSelectionHandle,
+    restored_selection: Option<(usize, DiffSide, Range<usize>)>,
     geometry: Rc<RefCell<SelectionGeometry>>,
     selected_lines: Option<DiffLineRange>,
     selection_anchor: Option<DiffLinePosition>,
@@ -346,9 +359,13 @@ impl DiffState {
         let _selection_subscription = selection.subscribe(
             move |event, cx| {
                 let _ = weak.update(cx, |state, cx| {
+                    if matches!(event, TextSelectionEvent::SelectionChanged(Some(_))) {
+                        state.restored_selection = None;
+                    }
                     if !state.selection.has_local_selection(cx) {
                         match event {
                             TextSelectionEvent::SelectionChanged(Some(_)) => {
+                                state.restored_selection = None;
                                 let changed = state.selected_lines.take().is_some();
                                 // A new text gesture ends the previous gutter anchor.
                                 state.selection_anchor = None;
@@ -393,6 +410,7 @@ impl DiffState {
             horizontal_scroll: ScrollHandle::new(),
             focus,
             selection,
+            restored_selection: None,
             geometry,
             selected_lines: None,
             selection_anchor: None,
@@ -631,6 +649,7 @@ impl DiffState {
         self.reset_presentation();
         self.layout = None;
         self.annotations.clear();
+        self.restored_selection = None;
         self.selection.set_local_selection(false, cx);
         self.selection.set_fallback_copy_text("", cx);
         self.selected_lines = None;
@@ -768,6 +787,7 @@ impl DiffState {
     /// Synchronizes source-line selection without emitting a user event.
     /// Clips to supplied patch lines; a range containing none clears selection.
     pub fn set_selected_lines(&mut self, range: Option<DiffLineRange>, cx: &mut Context<Self>) {
+        self.restored_selection = None;
         let range = range.and_then(|range| self.clip_range(&range));
         if self.selected_lines == range {
             return;
@@ -780,7 +800,85 @@ impl DiffState {
     }
 
     /// Returns selected source without gutters, diff markers or annotation content.
+    /// Map an unchanged source line to the other version's actual line number.
+    pub fn counterpart_position(
+        &self,
+        position: &DiffLinePosition,
+        side: DiffSide,
+    ) -> Option<DiffLinePosition> {
+        if position.side() == side {
+            return Some(position.clone());
+        }
+        let file = self.files.iter().find(|f| f.path() == position.path())?;
+        let line = file
+            .lines(position.side())
+            .iter()
+            .find(|l| l.line_number() == position.line())?;
+        let other = file.lines(side).get(line.counterpart()?)?;
+        (line.text() == other.text())
+            .then(|| DiffLinePosition::new(position.path().clone(), side, other.line_number()))
+    }
+    pub fn checkpoint(&self, cx: &App) -> DiffCheckpoint {
+        DiffCheckpoint {
+            files: self.files.clone(),
+            expanded: self.expanded.clone(),
+            collapsed: self.collapsed.clone(),
+            context_lines: self.context_lines,
+            selected_lines: self.selected_lines.clone(),
+            source_selection: self.source_selection(cx),
+            viewport: self.viewport_anchor(),
+            horizontal: self.horizontal_offset(),
+        }
+    }
+    pub fn restore_checkpoint(&mut self, checkpoint: DiffCheckpoint, cx: &mut Context<Self>) {
+        self.set_files(checkpoint.files, cx);
+        self.expanded = checkpoint.expanded;
+        self.collapsed = checkpoint.collapsed;
+        self.context_lines = checkpoint.context_lines;
+        self.rebuild(true);
+        self.set_selected_lines(checkpoint.selected_lines, cx);
+        self.restored_selection = checkpoint.source_selection;
+        self.selection.set_local_selection(
+            self.selected_lines.is_some() || self.restored_selection.is_some(),
+            cx,
+        );
+        self.restore_horizontal(checkpoint.horizontal, cx);
+        if let Some((position, offset)) = checkpoint.viewport {
+            self.restore_viewport(position, offset, cx);
+        }
+        cx.notify();
+    }
+    pub(crate) fn source_selection(&self, cx: &App) -> Option<(usize, DiffSide, Range<usize>)> {
+        self.restored_selection
+            .clone()
+            .or_else(|| super::selection::selected_source_range(&self.selection, cx))
+    }
+    /// Select an exact UTF-8 source byte range, including targets returned by LSP.
+    pub fn select_source_bytes(
+        &mut self,
+        path: &str,
+        side: DiffSide,
+        range: Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.restored_selection = self
+            .files
+            .iter()
+            .position(|f| f.path().as_str() == path)
+            .map(|ix| (ix, side, range));
+        self.selection
+            .set_local_selection(self.restored_selection.is_some(), cx);
+        cx.notify();
+    }
     pub fn selected_text(&self, cx: &App) -> String {
+        if let Some((file, side, range)) = &self.restored_selection {
+            return self
+                .files
+                .get(*file)
+                .and_then(|f| f.source(*side).get(range.clone()))
+                .unwrap_or("")
+                .to_string();
+        }
         if self.selection.has_local_selection(cx)
             && let Some(selected) = self.selected_span()
         {

@@ -43,7 +43,7 @@ def words(inverted=False):
     path=shot('latest')
     if inverted:
         run('convert',str(path),'-negate',str(out/'ocr-inverted.png'));path=out/'ocr-inverted.png'
-    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t')
+    rows=csv.DictReader(io.StringIO(run('tesseract',str(path),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE)
     return [r for r in rows if r.get('text','').strip()]
 def norm(s): return re.sub(r'[^a-z0-9]','',s.lower())
 def click_text(label,last=False):
@@ -70,14 +70,12 @@ def dialog_id():
     except (subprocess.CalledProcessError,IndexError): return None
 def choose_path(path,save=False):
     wait('native-dialog-visible',dialog_id)
-    run('xdotool','windowfocus','--sync',dialog_id())
-    if Path(path).is_dir(): click_text('peer',last=True)
+    run('wmctrl','-i','-a',hex(int(dialog_id())));run('xdotool','windowfocus','--sync',dialog_id())
+    if Path(path).is_dir(): click(220,100)  # GTK Home exits Recent before editing a location.
     key('ctrl+l');key('ctrl+a');subprocess.run(['xclip','-selection','clipboard'],input=str(path),text=True,check=True);key('ctrl+v')
-    if not Path(path).is_dir(): key('Return')
-    time.sleep(.4)
-    if dialog_id():
-        if Path(path).is_dir(): click_text('Open repository',last=True)
-        else: click_text('Save' if save else 'Open',last=True)
+    time.sleep(.7)
+    if not Path(path).is_dir(): key('Return');time.sleep(.5)
+    if dialog_id(): click_text('Open repository' if Path(path).is_dir() else ('Save' if save else 'Open'),last=True)
     wait('native-dialog-accepted',lambda:not dialog_id())
     run('xdotool','windowfocus','--sync',peer_window)
     run('wmctrl','-i','-a',hex(int(peer_window)))
@@ -105,19 +103,18 @@ try:
         if scenario == 'navigation':
             enter(120,142,'caller.py');key('Return')
             wait('caller-selected',lambda:state()['preferences']['sessions'][str(root)]['selectedPath']=='caller.py')
-            click(395,231);enter(1200,210,'Draft survives frozen navigation');enter(350,835,'8');key('F12')
-            wait('real-definition-results',lambda:pixels_contain('1 results'));shot('01-definition-result')
-            click(650,844)
+            click(395,231);click_text('Line scope');enter(1200,210,'Draft survives frozen navigation');enter(350,811,'8');key('F12')
+            wait('single-definition-opens-directly',lambda:pixels_contain('frozen source'));shot('01-definition-result')
             wait('frozen-source-visible',lambda:pixels_contain('frozen source'));shot('02-frozen-source')
             enter(380,118,'return');key('Return')
             wait('frozen-source-search',lambda:pixels_contain('Match 1/1') and pixels_contain('line 3'))
             enter(706,118,'3');click(764,118);shot('03-frozen-search-jump')
-            click(1320,24)
+            click(1320,24);time.sleep(.4);click(1320,24);time.sleep(.4);click(1320,24)
             wait('original-anchor-restored',lambda:pixels_contain('Comment on new line 2'));shot('04-back-anchor')
             click(1200,310)
             wait('draft-saved-to-original-anchor',lambda:any(c['body']=='Draft survives frozen navigation' and c['path']=='caller.py' and c['anchor'].get('line')==2 and c['anchor'].get('side')=='new' for q in state()['queues'].values() for c in q['comments']))
             # Saving clears the comment anchor; select the original call again.
-            click(395,231);enter(350,835,'8');key('shift+F12')
+            click(395,231);enter(350,811,'8');key('shift+F12')
             wait('real-reference-results',lambda:pixels_contain('2 results'));shot('05-references')
         else:
             click_text('Browse')
@@ -132,7 +129,7 @@ try:
         (out/'result.json').write_text(json.dumps({'passed':checks,'scenario':scenario},indent=2));print(json.dumps({'passed':len(checks),'scenario':scenario}));sys.exit(0)
     click(1090,24);choose_path(root)
     wait('folder-opened',lambda:state().get('preferences',{}).get('lastRepository')==str(root));shot('01-folder-opened')
-    click(405,231);enter(1200,210,'Portal export comment');click(1200,310)
+    click(405,231);click_text('Line scope');enter(1200,210,'Portal export comment');click(1200,310)
     wait('comment-created',lambda:any(q['comments'] for q in state().get('queues',{}).values()))
     click(1300,116);clipboard=run('xclip','-selection','clipboard','-o')
     click(1360,116);export=base/'feedback.json';choose_path(export,save=True)
@@ -167,9 +164,9 @@ try:
     assert not pixels_contain('Save comment');checks.append('feedback-panel-hidden')
     click(931,24);wait('feedback-panel-restored',lambda:pixels_contain('Portal export comment'))
     click(1200,116);wait('reviewed-before-clear',lambda:any(q['reviewed'] for q in state()['queues'].values()))
-    click(1300,839);click(1390,839)
+    click_text('Clear comments');wait('clear-confirm-visible',lambda:pixels_contain('Confirm clear comments'));click_text('Cancel',last=True)
     assert any(q['comments'] for q in state()['queues'].values());checks.append('clear-cancel-retains-comments')
-    click(1300,839);click(1230,839)
+    click_text('Clear comments');click_text('Confirm clear comments')
     wait('clear-confirm-deletes-comments',lambda:all(not q['comments'] for q in state()['queues'].values()))
     assert any(q['reviewed'] for q in state()['queues'].values());checks.append('clear-retains-reviewed')
     shot('08-clear-confirmed')

@@ -1,0 +1,12 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "history-first-page-fifty",
+    "rapid-pagination-unique-count",
+    "history-outside-close",
+    "history-selection-opens-commit",
+    "history-selection-closes-panel"
+  ],
+  "fixture_commits": 66
+}

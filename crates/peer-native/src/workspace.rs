@@ -2,7 +2,7 @@
 mod file_tree;
 #[path = "settings.rs"]
 mod settings;
-use gpui_kit::component::resizable::{h_resizable, resizable_panel, ResizableState};
+use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -50,7 +50,8 @@ actions!(
         TreeRight,
         TreeConfirm,
         TreeFirst,
-        TreeLast
+        TreeLast,
+        SaveComment
     ]
 );
 pub fn init(cx: &mut App) {
@@ -110,13 +111,16 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("f12", Definition, Some("Peer")),
         KeyBinding::new("shift-f12", References, Some("Peer")),
         KeyBinding::new("escape", Cancel, Some("Peer")),
+        KeyBinding::new("secondary-enter", SaveComment, Some("Peer")),
     ]);
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct SavedView {
     body: String,
+    fingerprint: Option<String>,
+    pending_new: Option<Box<SavedView>>,
     side: Option<String>,
     line: Option<usize>,
     editing: Option<String>,
@@ -124,6 +128,44 @@ struct SavedView {
     scroll_side: Option<String>,
     scroll_offset: f32,
     horizontal: f32,
+}
+
+impl SavedView {
+    fn same_draft(&self, other: &Self) -> bool {
+        self.body == other.body
+            && self.side == other.side
+            && self.line == other.line
+            && self.editing == other.editing
+            && self.fingerprint == other.fingerprint
+            && self.pending_new == other.pending_new
+    }
+}
+
+fn legacy_draft(
+    views: &BTreeMap<String, SavedView>,
+    key: &str,
+    fingerprint: &str,
+) -> Option<SavedView> {
+    let exact = views.get(&format!("{key}:{fingerprint}"));
+    exact
+        .filter(|v| !v.body.is_empty() || v.pending_new.is_some())
+        .map(|v| (fingerprint.to_owned(), v.clone()))
+        .or_else(|| {
+            views.iter().find_map(|(k, v)| {
+                k.strip_prefix(&format!("{key}:"))
+                    .filter(|fp| {
+                        fp.len() == 64
+                            && fp.bytes().all(|b| b.is_ascii_hexdigit())
+                            && (!v.body.is_empty() || v.pending_new.is_some())
+                    })
+                    .map(|fp| (fp.to_string(), v.clone()))
+            })
+        })
+        .or_else(|| exact.map(|v| (fingerprint.to_owned(), v.clone())))
+        .map(|(fp, mut v)| {
+            v.fingerprint.get_or_insert(fp);
+            v
+        })
 }
 
 pub struct Workspace {
@@ -140,6 +182,7 @@ pub struct Workspace {
     pending_jump: Option<DiffLinePosition>,
     preferences: Preferences,
     snapshot: Option<Snapshot>,
+    pending_comparison: Option<Comparison>,
     pending_root: Option<String>,
     content: Option<Arc<FileContent>>,
     queue: ReviewQueue,
@@ -162,7 +205,9 @@ pub struct Workspace {
     notice: String,
     anchor: Option<DiffLinePosition>,
     editing: Option<String>,
-    drafts: BTreeMap<String, String>,
+    comment_anchor: Option<DiffLinePosition>,
+    comment_fingerprint: Option<String>,
+    pending_new: Option<Box<SavedView>>,
     saved_views: BTreeMap<String, SavedView>,
     pending_saves: Vec<tokio::task::JoinHandle<Result<(), String>>>,
     quick_index: usize,
@@ -175,6 +220,8 @@ pub struct Workspace {
     quick_scroll_pending: bool,
     collapsed: BTreeSet<String>,
     tree_focus: FocusHandle,
+    resize_focus: [FocusHandle; 2],
+    resize_drag: Option<(usize, f32, SidebarWidths)>,
     tree_cursor: Option<String>,
     tree_reveal_pending: bool,
     history: Vec<String>,
@@ -182,22 +229,49 @@ pub struct Workspace {
     commits: Vec<Commit>,
     more_commits: bool,
     history_visible: bool,
+    commits_loading: bool,
+    branches_visible: bool,
+    search_query: String,
+    search_fresh: bool,
+    pending_location: Option<peer_core::navigation::SourceRange>,
     settings_visible: bool,
     recent_visible: bool,
     hits: Vec<presentation::SearchHit>,
     hit: usize,
     navigation_history: Vec<(
-        Vec<DiffFile>,
+        DiffCheckpoint,
         Option<NavigationFile>,
-        Option<(DiffLinePosition, f32)>,
         Option<DiffLinePosition>,
-        f32,
+        Option<NavigationResult>,
+        Option<peer_core::navigation::SourceRange>,
+        String,
     )>,
     navigation: Option<NavigationResult>,
     navigation_file: Option<NavigationFile>,
     navigation_request: Option<String>,
 }
 
+fn source_byte(source: &str, position: Position) -> Option<usize> {
+    let mut offset = 0;
+    for (number, line) in source.split_inclusive('\n').enumerate() {
+        if number == position.line as usize {
+            let text = line.trim_end_matches(['\r', '\n']);
+            let mut units = 0;
+            for (byte, ch) in text.char_indices() {
+                if units == position.character {
+                    return Some(offset + byte);
+                }
+                units += ch.len_utf16() as u32;
+            }
+            return (units == position.character).then_some(offset + text.len());
+        }
+        offset += line.len();
+    }
+    (position.character == 0
+        && (source.is_empty() || source.ends_with('\n'))
+        && position.line as usize == source.split_inclusive('\n').count())
+    .then_some(source.len())
+}
 fn input(placeholder: &str, window: &mut Window, cx: &mut App) -> Entity<InputState> {
     let placeholder = placeholder.to_owned();
     cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
@@ -313,6 +387,7 @@ impl Workspace {
             pending_jump: None,
             preferences,
             snapshot: None,
+            pending_comparison: None,
             pending_root: None,
             content: None,
             queue: ReviewQueue::default(),
@@ -334,7 +409,9 @@ impl Workspace {
             notice: String::new(),
             anchor: None,
             editing: None,
-            drafts: BTreeMap::new(),
+            comment_anchor: None,
+            comment_fingerprint: None,
+            pending_new: None,
             saved_views: BTreeMap::new(),
             pending_saves: vec![],
             quick_index: 0,
@@ -347,6 +424,8 @@ impl Workspace {
             quick_scroll_pending: false,
             collapsed: BTreeSet::new(),
             tree_focus: cx.focus_handle(),
+            resize_focus: [cx.focus_handle(), cx.focus_handle()],
+            resize_drag: None,
             tree_cursor: None,
             tree_reveal_pending: false,
             history: vec![],
@@ -354,6 +433,11 @@ impl Workspace {
             commits: vec![],
             more_commits: false,
             history_visible: false,
+            commits_loading: false,
+            branches_visible: false,
+            search_query: String::new(),
+            search_fresh: true,
+            pending_location: None,
             settings_visible: false,
             recent_visible: false,
             hits: vec![],
@@ -444,12 +528,37 @@ impl Workspace {
             },
         ));
         this.subscriptions.push(cx.subscribe_in(
-            &this.search.clone(),
+            &this.comment.clone(),
             window,
             |this, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift, .. } = event {
-                    this.find(if *shift { -1 } else { 1 }, window, cx);
+                if matches!(
+                    event,
+                    InputEvent::PressEnter {
+                        secondary: true,
+                        ..
+                    }
+                ) {
+                    this.save_comment(window, cx);
                 }
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.search.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    this.hits.clear();
+                    this.search_fresh = true;
+                    this.search_query = this.search.read(cx).value().to_string();
+                    if !this.search_query.is_empty() {
+                        this.find(0, window, cx);
+                    }
+                    cx.notify();
+                }
+                InputEvent::PressEnter { shift, .. } => {
+                    this.find(if *shift { -1 } else { 1 }, window, cx)
+                }
+                _ => {}
             },
         ));
         this.subscriptions.push(cx.subscribe_in(
@@ -489,6 +598,7 @@ impl Workspace {
             false
         });
         this.apply_theme(window, cx);
+        this.focus.focus(window, cx);
         if let Some(path) = initial {
             this.path
                 .update(cx, |s, cx| s.set_value(path.clone(), window, cx));
@@ -524,13 +634,13 @@ impl Workspace {
                 match result {
                     Ok(value) => done(this, value, window, cx),
                     Err(error) => {
-                        this.feedback_pending = false;
                         if this.epoch.load(Ordering::SeqCst) == epoch
                             && this.file_epoch == generation
                         {
                             this.loading = false;
                             this.notice = "Action failed; see error above".into();
                             this.error = Some(error);
+                            this.commits_loading = false;
                         }
                     }
                 }
@@ -542,15 +652,84 @@ impl Workspace {
     fn draft_key(&self) -> Option<String> {
         self.content.as_ref().map(|f| {
             format!(
-                "{}:{}:{}",
+                "draft-v2:{}:{}",
                 self.snapshot
                     .as_ref()
                     .map(|s| s.queue_id.as_str())
                     .unwrap_or(""),
-                f.path,
-                f.fingerprint
+                f.path
             )
         })
+    }
+    fn comment_view(&self, cx: &App) -> SavedView {
+        SavedView {
+            body: self.comment.read(cx).value().to_string(),
+            fingerprint: self
+                .comment_fingerprint
+                .clone()
+                .or_else(|| self.content.as_ref().map(|f| f.fingerprint.clone())),
+            pending_new: self.pending_new.clone(),
+            side: self.comment_anchor.as_ref().map(|a| side(a.side()).into()),
+            line: self.comment_anchor.as_ref().map(|a| a.line()),
+            editing: self.editing.clone(),
+            ..Default::default()
+        }
+    }
+    fn saved_comment_view(&self) -> Option<SavedView> {
+        let key = self.draft_key()?;
+        if let Some(view) = self.saved_views.get(&key) {
+            return Some(view.clone());
+        }
+        // Read the fingerprint-keyed format shipped by the first native version.
+        let fingerprint = &self.content.as_ref()?.fingerprint;
+        let key = format!(
+            "{}:{}",
+            self.snapshot.as_ref()?.queue_id,
+            self.content.as_ref()?.path
+        );
+        legacy_draft(&self.saved_views, &key, fingerprint)
+    }
+
+    fn restore_comment(&mut self, view: SavedView, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self
+            .content
+            .as_ref()
+            .map(|f| f.path.clone())
+            .unwrap_or_default();
+        self.comment_anchor = view.line.map(|line| {
+            DiffLinePosition::new(path, diff_side(view.side.as_deref().unwrap_or("new")), line)
+        });
+        self.comment_fingerprint = view.fingerprint;
+        self.editing = view.editing;
+        self.pending_new = view.pending_new;
+        self.comment
+            .update(cx, |s, cx| s.set_value(view.body, window, cx));
+    }
+    fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = self.pending_new.take().map(|v| *v).unwrap_or_default();
+        self.restore_comment(view, window, cx);
+        self.remember(cx);
+        cx.notify();
+    }
+    fn begin_comment(
+        &mut self,
+        position: Option<DiffLinePosition>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.navigation_file.is_some() || self.loading {
+            return;
+        }
+        if self.editing.is_some() {
+            self.cancel_edit(window, cx);
+        }
+        self.error = None;
+        self.comment_anchor = position;
+        self.comment_fingerprint = self.content.as_ref().map(|f| f.fingerprint.clone());
+        self.feedback_visible = true;
+        self.comment.update(cx, |s, cx| s.focus(window, cx));
+        self.remember(cx);
+        cx.notify();
     }
     fn remember(&mut self, cx: &mut Context<Self>) {
         // Frozen navigation sources cannot replace the review draft or its source anchor.
@@ -563,21 +742,28 @@ impl Workspace {
         let root = snapshot.repository.root.clone();
         let selected_path = self.content.as_ref().map(|f| f.path.clone());
         let comparison = snapshot.comparison.clone();
+        if comparison.view == "changes" {
+            self.preferences
+                .sessions
+                .entry(root.clone())
+                .or_insert_with(|| Session {
+                    comparison: comparison.clone(),
+                    selected_path: selected_path.clone(),
+                    scroll_top: 0.,
+                    last_changes: None,
+                })
+                .last_changes = Some(comparison.clone());
+        }
         let viewport = self
             .diff
             .read(cx)
             .viewport_anchor()
             .filter(|(p, _)| selected_path.as_deref() == Some(p.path().as_str()));
-        let view = SavedView {
-            body: self.comment.read(cx).value().to_string(),
-            side: self.anchor.as_ref().map(|a| side(a.side()).into()),
-            line: self.anchor.as_ref().map(|a| a.line()),
-            editing: self.editing.clone(),
-            scroll_line: viewport.as_ref().map(|(a, _)| a.line()),
-            scroll_side: viewport.as_ref().map(|(a, _)| side(a.side()).into()),
-            scroll_offset: viewport.map(|(_, offset)| offset).unwrap_or_default(),
-            horizontal: self.diff.read(cx).horizontal_offset(),
-        };
+        let mut view = self.comment_view(cx);
+        view.scroll_line = viewport.as_ref().map(|(a, _)| a.line());
+        view.scroll_side = viewport.as_ref().map(|(a, _)| side(a.side()).into());
+        view.scroll_offset = viewport.map(|(_, offset)| offset).unwrap_or_default();
+        view.horizontal = self.diff.read(cx).horizontal_offset();
         let key = self.draft_key();
         if let Some(key) = &key {
             self.saved_views.insert(key.clone(), view.clone());
@@ -596,12 +782,19 @@ impl Workspace {
                     .map(|s| s.scroll_top)
                     .unwrap_or(0.);
                 data.preferences.sessions.insert(
-                    root,
+                    root.clone(),
                     Session {
                         comparison: comparison.clone(),
                         selected_path,
                         scroll_top: legacy_top,
-                        last_changes: Some(comparison),
+                        last_changes: if comparison.view == "changes" {
+                            Some(comparison)
+                        } else {
+                            data.preferences
+                                .sessions
+                                .get(&root)
+                                .and_then(|s| s.last_changes.clone())
+                        },
                     },
                 );
                 if let Some(key) = key {
@@ -642,7 +835,10 @@ impl Workspace {
         self.remember(cx);
         self.clear_queue_request = None;
         self.pending_jump = None;
+        self.commits_loading = false;
+        self.history_visible = false;
         self.pending_root = Some(path.clone());
+        self.pending_comparison = comparison.clone();
         self.path
             .update(cx, |s, cx| s.set_value(path.clone(), window, cx));
         self.cancel_navigation();
@@ -712,6 +908,7 @@ impl Workspace {
                     this.preferences = preferences;
                     this.branches = branches;
                     this.commits.clear();
+                    this.pending_comparison = Some(snapshot.comparison.clone());
                     this.snapshot = Some(snapshot);
                     this.apply_theme(window, cx);
                     let first = this
@@ -772,9 +969,24 @@ impl Workspace {
             &self.collapsed,
         )
     }
-    fn reveal_tree(&mut self, path: &str) {
+    fn reveal_tree(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         file_tree::reveal(path, &mut self.collapsed);
         self.tree_cursor = Some(format!("file:{path}"));
+        let mut query = self.filter.read(cx).value().to_lowercase();
+        if !path.to_lowercase().contains(&query) {
+            self.filter.update(cx, |s, cx| s.set_value("", window, cx));
+            query.clear();
+        }
+        self.quick_index = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| {
+                s.files
+                    .iter()
+                    .filter(|f| f.path.to_lowercase().contains(&query))
+                    .position(|f| f.path == path)
+            })
+            .unwrap_or(0);
         self.tree_reveal_pending = true;
     }
     fn tree_click(
@@ -858,7 +1070,7 @@ impl Workspace {
             .and_then(|s| s.files.iter().find(|f| f.id == id))
             .map(|f| f.path.clone())
         {
-            self.reveal_tree(&path);
+            self.reveal_tree(&path, window, cx);
         }
         if !force
             && !self.all_files
@@ -905,6 +1117,9 @@ impl Workspace {
         self.navigation_history.clear();
         self.anchor = None;
         self.editing = None;
+        self.comment_anchor = None;
+        self.comment_fingerprint = None;
+        self.pending_new = None;
         self.hits.clear();
         self.error = None;
         self.loading = true;
@@ -935,14 +1150,8 @@ impl Workspace {
                 this.loading = false;
                 this.diff.update(cx, |s, cx| s.set_files(files, cx));
                 this.content = Some(content);
-                if let Some(view) = this
-                    .draft_key()
-                    .and_then(|key| this.saved_views.get(&key))
-                    .cloned()
-                {
-                    this.comment
-                        .update(cx, |s, cx| s.set_value(view.body, window, cx));
-                    this.editing = view.editing;
+                if let Some(view) = this.saved_comment_view() {
+                    this.restore_comment(view.clone(), window, cx);
                     this.diff
                         .update(cx, |s, cx| s.restore_horizontal(view.horizontal, cx));
                     let path = this
@@ -950,7 +1159,7 @@ impl Workspace {
                         .as_ref()
                         .map(|f| f.path.clone())
                         .unwrap_or_default();
-                    this.anchor = view.line.map(|line| {
+                    this.comment_anchor = view.line.map(|line| {
                         DiffLinePosition::new(
                             path.clone(),
                             diff_side(view.side.as_deref().unwrap_or("new")),
@@ -1022,8 +1231,34 @@ impl Workspace {
             } else {
                 None
             },
-            include_untracked: true,
+            include_untracked: self
+                .snapshot
+                .as_ref()
+                .map(|s| &s.comparison)
+                .or(self.pending_comparison.as_ref())
+                .map(|c| {
+                    if c.mode == "commit" {
+                        Comparison::default().include_untracked
+                    } else {
+                        c.include_untracked
+                    }
+                })
+                .unwrap_or(true),
         };
+        self.open(path, Some(comparison), window, cx);
+    }
+    fn resume_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let path = snapshot.repository.root.clone();
+        let comparison = self
+            .preferences
+            .sessions
+            .get(&path)
+            .and_then(|s| s.last_changes.clone())
+            .filter(|c| c.view == "changes")
+            .unwrap_or_default();
         self.open(path, Some(comparison), window, cx);
     }
     fn choose_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1069,7 +1304,7 @@ impl Workspace {
         );
     }
     fn save_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.feedback_pending {
+        if self.feedback_pending || self.loading || self.navigation_file.is_some() {
             return;
         }
         let (Some(snapshot), Some(content)) = (&self.snapshot, &self.content) else {
@@ -1079,8 +1314,29 @@ impl Workspace {
         if body.trim().is_empty() {
             return;
         }
+        if self.editing.is_none()
+            && self
+                .comment_fingerprint
+                .as_ref()
+                .is_some_and(|fp| fp != &content.fingerprint)
+        {
+            self.error = Some(
+                "Draft source changed; explicitly choose its new comment location before saving"
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
         let queue = snapshot.queue_id.clone();
         let editing = self.editing.clone();
+        let restored = if editing.is_some() {
+            self.pending_new.as_deref().cloned().unwrap_or_default()
+        } else {
+            SavedView::default()
+        };
+        let persisted = restored.clone();
+        let submitted = self.comment_view(cx);
+        let persisted_submission = submitted.clone();
         let key = self.draft_key();
         let generation = self.file_epoch;
         let comment = NewComment {
@@ -1091,9 +1347,9 @@ impl Workspace {
             side: if snapshot.comparison.view == "code" {
                 None
             } else {
-                self.anchor.as_ref().map(|a| side(a.side()).into())
+                self.comment_anchor.as_ref().map(|a| side(a.side()).into())
             },
-            line: self.anchor.as_ref().map(|a| a.line() as u32),
+            line: self.comment_anchor.as_ref().map(|a| a.line() as u32),
         };
         let core = self.core.clone();
         let gate = self.gate.clone();
@@ -1101,41 +1357,92 @@ impl Workspace {
         self.feedback_pending = true;
         self.task(
             async move {
-                let _guard = gate.lock().await;
-                if let Some(id) = editing {
-                    core.update_comment(&queue, &id, &body)?;
-                } else {
-                    core.add_comment(comment).await?;
-                }
-                core.store.update(|d| {
-                    if let Some(key) = saved_key {
-                        if let Some(v) = d.native_state.get_mut(&key) {
-                            v["body"] = "".into();
-                            v["line"] = serde_json::Value::Null;
-                            v["editing"] = serde_json::Value::Null;
-                        }
+                Ok(async move {
+                    let _guard = gate.lock().await;
+                    if let Some(id) = editing {
+                        core.update_comment(&queue, &id, &body)?;
+                    } else {
+                        core.add_comment(comment).await?;
                     }
-                    Ok(())
-                })
+                    core.store.update(|d| {
+                        if let Some(key) = saved_key {
+                            let unchanged = d
+                                .native_state
+                                .get(&key)
+                                .and_then(|v| serde_json::from_value::<SavedView>(v.clone()).ok())
+                                .is_none_or(|v| v.same_draft(&persisted_submission));
+                            if unchanged {
+                                d.native_state.insert(
+                                    key,
+                                    serde_json::to_value(persisted).map_err(|e| e.to_string())?,
+                                );
+                            }
+                        }
+                        Ok(())
+                    })
+                }
+                .await)
             },
             window,
             cx,
-            move |this, (), window, cx| {
+            move |this, result: Result<(), String>, window, cx| {
                 this.feedback_pending = false;
-                if let Some(key) = key {
-                    this.drafts.remove(&key);
-                    if let Some(view) = this.saved_views.get_mut(&key) {
-                        view.body.clear();
-                        view.line = None;
-                        view.side = None;
-                        view.editing = None;
+                if let Err(error) = result {
+                    this.error = Some(error);
+                    return;
+                }
+                if let Some(key) = &key {
+                    if this
+                        .saved_views
+                        .get(key)
+                        .is_none_or(|v| v.same_draft(&submitted))
+                    {
+                        this.saved_views.insert(key.clone(), restored.clone());
                     }
                 }
-                if this.file_epoch == generation {
-                    this.comment.update(cx, |s, cx| s.set_value("", window, cx));
-                    this.editing = None;
-                    this.anchor = None;
+                // Never clear text typed while the asynchronous save was in flight.
+                if this.file_epoch == generation && this.comment_view(cx).same_draft(&submitted) {
+                    this.restore_comment(restored.clone(), window, cx);
+                    this.remember(cx);
                 }
+                if this.file_epoch == generation {
+                    this.remember(cx);
+                }
+                // A file switch can queue a draft write behind the comment save.
+                // Drain those writes before conditionally removing the submitted draft.
+                let saves = std::mem::take(&mut this.pending_saves);
+                let core = this.core.clone();
+                let gate = this.gate.clone();
+                this.task(
+                    async move {
+                        for save in saves {
+                            save.await.map_err(|e| e.to_string())??;
+                        }
+                        let _guard = gate.lock().await;
+                        core.store.update(|data| {
+                            if let Some(key) = key {
+                                let unchanged = data
+                                    .native_state
+                                    .get(&key)
+                                    .and_then(|v| {
+                                        serde_json::from_value::<SavedView>(v.clone()).ok()
+                                    })
+                                    .is_some_and(|v| v.same_draft(&submitted));
+                                if unchanged {
+                                    data.native_state.insert(
+                                        key,
+                                        serde_json::to_value(restored)
+                                            .map_err(|e| e.to_string())?,
+                                    );
+                                }
+                            }
+                            Ok(())
+                        })
+                    },
+                    window,
+                    cx,
+                    |_, (), _, _| {},
+                );
                 this.update_queue(window, cx);
             },
         );
@@ -1157,7 +1464,7 @@ impl Workspace {
             cx,
             move |this, (), window, cx| {
                 if this.editing.as_ref() == Some(&deleted) {
-                    this.editing = None;
+                    this.cancel_edit(window, cx);
                 }
                 this.update_queue(window, cx);
             },
@@ -1187,6 +1494,7 @@ impl Workspace {
             cx.notify();
             return;
         };
+        self.reveal_tree(&comment.path, window, cx);
         if self.all_files && self.loaded_files.contains_key(&comment.path) {
             self.activate_loaded(&comment.path, window, cx);
         }
@@ -1224,7 +1532,9 @@ impl Workspace {
             window,
             cx,
             |this, (), w, c| {
-                this.editing = None;
+                if this.editing.is_some() {
+                    this.cancel_edit(w, c);
+                }
                 this.update_queue(w, c);
             },
         );
@@ -1347,13 +1657,20 @@ impl Workspace {
                     this.hits = hits;
                     return;
                 }
-                if hits != this.hits {
-                    this.hit = 0;
+                if delta == 0 {
+                    this.hits = hits;
+                    cx.notify();
+                    return;
+                }
+                if hits != this.hits || this.search_fresh {
+                    this.hit = if delta < 0 { hits.len() - 1 } else { 0 };
+                    this.search_fresh = false;
                 } else {
                     this.hit = (this.hit as isize + delta).rem_euclid(hits.len() as isize) as usize;
                 }
                 let hit = &hits[this.hit];
                 let position = DiffLinePosition::new(path, diff_side(hit.side), hit.line as usize);
+                this.push_navigation_history(cx);
                 this.anchor = Some(position.clone());
                 this.diff.update(cx, |s, cx| s.scroll_to_line(position, cx));
                 this.notice = format!(
@@ -1408,24 +1725,47 @@ impl Workspace {
             .map(|f| f.path.clone())
             .unwrap_or_else(|| content.path.clone());
         let position = DiffLinePosition::new(path, selected_side, line);
+        self.push_navigation_history(cx);
         self.anchor = Some(position.clone());
         self.diff.update(cx, |s, cx| s.scroll_to_line(position, cx));
         cx.notify();
     }
+    fn push_navigation_history(&mut self, cx: &App) {
+        self.navigation_history.push((
+            self.diff.read(cx).checkpoint(cx),
+            self.navigation_file.clone(),
+            self.anchor.clone(),
+            self.navigation.clone(),
+            self.pending_location.clone(),
+            self.column.read(cx).value().to_string(),
+        ));
+        if self.navigation_history.len() > 100 {
+            self.navigation_history.remove(0);
+        }
+    }
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((files, file, viewport, anchor, horizontal)) = self.navigation_history.pop() {
+        if let Some((checkpoint, file, anchor, navigation, target, column)) =
+            self.navigation_history.pop()
+        {
             self.file_epoch += 1;
             self.cancel_navigation();
             self.navigation_file = file;
+            self.notice = self
+                .navigation_file
+                .as_ref()
+                .map(|f| f.label.clone())
+                .unwrap_or_else(|| "Returned to review source".into());
             self.anchor = anchor;
+            self.navigation = navigation;
+            self.pending_location = target;
+            self.column
+                .update(cx, |s, cx| s.set_value(column, window, cx));
             self.hits.clear();
-            self.diff.update(cx, |s, cx| {
-                s.set_files(files, cx);
-                s.restore_horizontal(horizontal, cx);
-                if let Some((position, offset)) = viewport {
-                    s.restore_viewport(position, offset, cx);
-                }
-            });
+            self.diff
+                .update(cx, |s, cx| s.restore_checkpoint(checkpoint, cx));
+            if let Some(path) = self.content.as_ref().map(|f| f.path.clone()) {
+                self.reveal_tree(&path, window, cx);
+            }
             cx.notify();
             return;
         }
@@ -1436,11 +1776,15 @@ impl Workspace {
         }
     }
     fn load_commits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.commits_loading {
+            return;
+        }
         let Some(snapshot) = &self.snapshot else {
             return;
         };
         let id = snapshot.id.clone();
         let offset = self.commits.len() as u32;
+        self.commits_loading = true;
         let core = self.core.clone();
         let epoch = self.epoch.load(Ordering::SeqCst);
         self.task(
@@ -1449,9 +1793,14 @@ impl Workspace {
             cx,
             move |this, page, _, _| {
                 if this.epoch.load(Ordering::SeqCst) == epoch {
+                    this.commits_loading = false;
                     this.more_commits = page.has_more;
-                    this.commits.extend(page.commits);
-                    this.history_visible = true;
+                    for commit in page.commits {
+                        if !this.commits.iter().any(|c| c.id == commit.id) {
+                            this.commits.push(commit);
+                        }
+                    }
+                    this.notice = format!("{} commits loaded", this.commits.len());
                 }
             },
         );
@@ -1557,6 +1906,107 @@ impl Workspace {
             |_, (), _, _| {},
         );
     }
+    fn persist_widths(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        let widths = self.preferences.sidebar_widths.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.store.update(|d| {
+                    d.preferences.sidebar_widths = widths;
+                    Ok(())
+                })
+            },
+            window,
+            cx,
+            |_, (), _, _| {},
+        );
+    }
+    fn set_sidebar_width(
+        &mut self,
+        index: usize,
+        width: f32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let total = f32::from(window.viewport_size().width);
+        let other = if index == 0 {
+            if self.feedback_visible {
+                self.preferences.sidebar_widths.feedback as f32
+            } else {
+                0.
+            }
+        } else {
+            self.preferences.sidebar_widths.files as f32
+        };
+        let min = if index == 0 { 180. } else { 260. };
+        let max: f32 = if index == 0 { 600. } else { 640. };
+        let width = width.clamp(min, max.min(total - other - 320. - 8.).max(min)) as u32;
+        if index == 0 {
+            self.preferences.sidebar_widths.files = width;
+        } else {
+            self.preferences.sidebar_widths.feedback = width;
+        }
+        cx.notify();
+    }
+    fn splitter(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        div().id(("native-splitter",index)).w(px(4.)).h_full().flex_shrink_0().cursor_col_resize()
+            .track_focus(&self.resize_focus[index]).tab_index(0)
+            .tooltip(|window,cx|tooltip::Tooltip::new("Resize sidebar: arrows, Shift+arrows, Home/End; double-click resets; Escape cancels drag").build(window,cx))
+            .on_mouse_down(MouseButton::Left,cx.listener(move|this,event:&MouseDownEvent,window,cx|{
+                this.resize_focus[index].focus(window,cx);
+                if event.click_count==2 {
+                    this.resize_drag=None;this.set_sidebar_width(index,if index==0 {244.}else{310.},window,cx);this.persist_widths(window,cx);
+                }else{this.resize_drag=Some((index,f32::from(event.position.x),this.preferences.sidebar_widths.clone()));}
+                cx.stop_propagation();
+            }))
+            .on_key_down(cx.listener(move|this,event:&KeyDownEvent,window,cx|{
+                let current=if index==0 {this.preferences.sidebar_widths.files}else{this.preferences.sidebar_widths.feedback} as f32;
+                let step=if event.keystroke.modifiers.shift {40.}else{10.};
+                let next=match event.keystroke.key.as_str(){"left"=>Some(current+if index==0 {-step}else{step}),"right"=>Some(current+if index==0 {step}else{-step}),"home"=>Some(if index==0 {180.}else{260.}),"end"=>Some(if index==0 {600.}else{640.}),_=>None};
+                if let Some(width)=next {this.set_sidebar_width(index,width,window,cx);this.persist_widths(window,cx);cx.stop_propagation();}
+            }))
+    }
+    fn navigation_side(&mut self, side: DiffSide, cx: &mut Context<Self>) {
+        if self.navigation_file.is_some() {
+            return;
+        }
+        if let Some(anchor) = &self.anchor {
+            if let Some(mapped) = self.diff.read(cx).counterpart_position(anchor, side) {
+                self.anchor = Some(mapped);
+                self.notice = format!("Navigation version: {}", crate::workspace::side(side));
+            } else {
+                self.notice = "This changed line exists only on its selected side".into();
+            }
+        }
+        cx.notify();
+    }
+    fn reveal_navigation_target(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(file), Some(target)) = (&self.navigation_file, &self.pending_location) else {
+            return;
+        };
+        let position = DiffLinePosition::new(
+            file.path.clone(),
+            DiffSide::Modified,
+            target.start.line as usize + 1,
+        );
+        let bytes = file
+            .content
+            .as_deref()
+            .and_then(|s| Some(source_byte(s, target.start)?..source_byte(s, target.end)?));
+        self.diff.update(cx, |s, cx| {
+            s.scroll_to_line(position.clone(), cx);
+            if let Some(bytes) = bytes {
+                s.select_source_bytes(&file.path, DiffSide::Modified, bytes, cx);
+            }
+        });
+        self.anchor = Some(position);
+        self.diff.read(cx).focus_handle(cx).focus(window, cx);
+        self.column.update(cx, |s, cx| {
+            s.set_value(target.start.character.to_string(), window, cx)
+        });
+    }
     fn navigate(&mut self, operation: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_navigation();
         self.error = None;
@@ -1582,7 +2032,16 @@ impl Workspace {
                 .as_ref()
                 .map(|f| f.side.clone())
                 .unwrap_or_else(|| side(anchor.side()).into()),
-            path: Some(anchor.path().to_string()),
+            path: Some(
+                if self.navigation_file.is_none() && anchor.side() == DiffSide::Original {
+                    self.content
+                        .as_ref()
+                        .and_then(|f| f.old_path.clone())
+                        .unwrap_or_else(|| anchor.path().to_string())
+                } else {
+                    anchor.path().to_string()
+                },
+            ),
             document_id: self.navigation_file.as_ref().map(|f| f.document_id.clone()),
             position: Position {
                 line: anchor.line() as u32 - 1,
@@ -1593,6 +2052,7 @@ impl Workspace {
         self.navigation_request = Some(request_id.clone());
         self.notice = "Resolving symbol…".into();
         let core = self.core.clone();
+        let auto_open = operation != "references";
         self.task(
             async move {
                 core.navigate_symbol(request)
@@ -1601,21 +2061,25 @@ impl Workspace {
             },
             window,
             cx,
-            move |this, result, _, _| {
+            move |this, result, window, cx| {
                 if this.epoch.load(Ordering::SeqCst) == epoch
                     && this.file_epoch == generation
                     && this.navigation_request.as_ref() == Some(&request_id)
                 {
                     this.navigation_request = None;
                     this.notice = format!("{} results", result.locations.len());
+                    let single = result.locations.len() == 1;
                     this.navigation = Some(result);
+                    if single && auto_open {
+                        this.open_location(0, window, cx);
+                    }
                 }
             },
         );
     }
     fn open_location(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.remember(cx);
-        let (Some(snapshot), Some(result)) = (&self.snapshot, &self.navigation) else {
+        let (Some(snapshot), Some(result)) = (&self.snapshot, self.navigation.clone()) else {
             return;
         };
         let Some(location) = result.locations.get(index) else {
@@ -1624,20 +2088,13 @@ impl Workspace {
         let id = snapshot.id.clone();
         let side = result.side.clone();
         let document = location.document_id.clone();
-        let line = location.range.start.line as usize + 1;
+        let target = location.range.clone();
+        let line = target.start.line as usize + 1;
         let core = self.core.clone();
         let width = self.preferences.tab_width;
         let whitespace = self.preferences.show_whitespace;
-        self.navigation_history.push((
-            self.diff.read(cx).files().to_vec(),
-            self.navigation_file.clone(),
-            self.diff.read(cx).viewport_anchor(),
-            self.anchor.clone(),
-            self.diff.read(cx).horizontal_offset(),
-        ));
-        if self.navigation_history.len() > 100 {
-            self.navigation_history.remove(0);
-        }
+        self.push_navigation_history(cx);
+        self.pending_location = Some(target.clone());
         self.file_epoch += 1;
         let generation = self.file_epoch;
         self.loading = true;
@@ -1648,7 +2105,7 @@ impl Workspace {
             },
             window,
             cx,
-            move |this, (file,models), _, cx| {
+            move |this, (file,models), window, cx| {
                 if this.file_epoch != generation {
                     return;
                 }
@@ -1657,10 +2114,12 @@ impl Workspace {
                     let position=DiffLinePosition::new(file.path.clone(),DiffSide::Modified,line);
                     this.diff.update(cx,|s,cx|{s.set_files(models,cx);s.scroll_to_line(position.clone(),cx);});
                     this.anchor=Some(position);
+                    this.column.update(cx,|s,cx|s.set_value(target.start.character.to_string(),window,cx));
                 }
                 this.hits.clear();
                 this.notice = file.label.clone();
                 this.navigation_file = Some(file);
+                this.reveal_navigation_target(window,cx);
             },
         );
     }
@@ -1687,12 +2146,26 @@ impl Workspace {
             },
             window,
             cx,
-            move |this, (file, models), _, cx| {
+            move |this, (file, models), window, cx| {
                 if this.file_epoch != generation {
                     return;
                 }
                 this.diff.update(cx, |s, cx| s.set_files(models, cx));
+                if let Some(target) = &this.pending_location {
+                    let position = DiffLinePosition::new(
+                        file.path.clone(),
+                        DiffSide::Modified,
+                        target.start.line as usize + 1,
+                    );
+                    this.diff
+                        .update(cx, |s, cx| s.scroll_to_line(position.clone(), cx));
+                    this.anchor = Some(position);
+                    this.column.update(cx, |s, cx| {
+                        s.set_value(target.start.character.to_string(), window, cx)
+                    });
+                }
                 this.navigation_file = Some(file);
+                this.reveal_navigation_target(window, cx);
             },
         );
     }
@@ -1706,17 +2179,12 @@ impl Workspace {
         self.remember(cx);
         self.cancel_navigation();
         self.file_epoch += 1;
-        self.reveal_tree(path);
+        self.reveal_tree(path, window, cx);
         self.content = Some(content);
+        self.hits.clear();
+        self.search_fresh = true;
         self.anchor = None;
-        self.editing = None;
-        let body = self
-            .draft_key()
-            .and_then(|key| self.saved_views.get(&key))
-            .map(|v| v.body.clone())
-            .unwrap_or_default();
-        self.comment
-            .update(cx, |s, cx| s.set_value(body, window, cx));
+        self.restore_comment(self.saved_comment_view().unwrap_or_default(), window, cx);
         self.remember(cx);
         cx.notify();
     }
@@ -1881,6 +2349,24 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Retain a usable center when restoring widths on a smaller display.
+        let available = (f32::from(window.viewport_size().width) - 328.).max(440.);
+        let files_max = if self.feedback_visible {
+            (available - 260.).min(600.)
+        } else {
+            available.min(600.)
+        };
+        self.preferences.sidebar_widths.files =
+            (self.preferences.sidebar_widths.files as f32).clamp(180., files_max.max(180.)) as u32;
+        if self.feedback_visible {
+            self.preferences.sidebar_widths.feedback =
+                (self.preferences.sidebar_widths.feedback as f32).clamp(
+                    260.,
+                    (available - self.preferences.sidebar_widths.files as f32)
+                        .min(640.)
+                        .max(260.),
+                ) as u32;
+        }
         let filter = self.filter.read(cx).value().to_lowercase();
         let entries: Vec<_> = self
             .snapshot
@@ -1945,6 +2431,12 @@ impl Render for Workspace {
                         .gap_1()
                         .pl(px(8. + row.depth.min(max_indent) as f32 * 14.))
                         .pr_2()
+                        .border_l_2()
+                        .border_color(if selected.as_ref() == Some(&row.key()) {
+                            cx.theme().primary
+                        } else {
+                            transparent_black()
+                        })
                         .selected(selected.as_ref() == Some(&row.key()))
                         .tooltip(move |w, c| tooltip::Tooltip::new(hint.clone()).build(w, c))
                         .child(
@@ -2103,6 +2595,10 @@ impl Render for Workspace {
                                     .small()
                                     .label("Edit")
                                     .on_click(cx.listener(move |this, _, window, cx| {
+                                        if this.editing.is_none() {
+                                            this.pending_new =
+                                                Some(Box::new(this.comment_view(cx)));
+                                        }
                                         this.editing = Some(edit.id.clone());
                                         this.comment.update(cx, |s, cx| {
                                             s.set_value(edit.body.clone(), window, cx)
@@ -2130,7 +2626,9 @@ impl Render for Workspace {
                     }),
             );
         }
-        let scope = if let Some(anchor) = &self.anchor {
+        let scope = if self.editing.is_some() {
+            "Editing saved comment (new draft preserved)".into()
+        } else if let Some(anchor) = &self.comment_anchor {
             format!("Comment on {} line {}", side(anchor.side()), anchor.line())
         } else {
             "File comment".into()
@@ -2209,13 +2707,15 @@ impl Render for Workspace {
                     }
                     this.feedback_visible = true;
                     this.activate_loaded(range.path(), window, cx);
-                    this.anchor = Some(DiffLinePosition::new(
-                        range.path().clone(),
-                        range.side(),
-                        range.start(),
-                    ));
-                    this.editing = None;
-                    this.comment.update(cx, |s, cx| s.focus(window, cx));
+                    this.begin_comment(
+                        Some(DiffLinePosition::new(
+                            range.path().clone(),
+                            range.side(),
+                            range.start(),
+                        )),
+                        window,
+                        cx,
+                    );
                     cx.notify();
                 });
             })
@@ -2249,8 +2749,50 @@ impl Render for Workspace {
                             }
                         }
                     }
+                    if let ClickEvent::Mouse(mouse) = event {
+                        if mouse.up.modifiers.platform || mouse.up.modifiers.control {
+                            this.navigate("auto", window, cx);
+                        }
+                    }
                     cx.notify();
                 });
+            });
+        let viewer = div()
+            .id("diff-context-menu")
+            .size_full()
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    if let Some((position, byte)) = this.diff.read(cx).position_at(event.position) {
+                        this.activate_loaded(position.path(), window, cx);
+                        let source = this
+                            .navigation_file
+                            .as_ref()
+                            .and_then(|f| f.content.as_deref())
+                            .or_else(|| {
+                                this.content.as_ref().and_then(|f| {
+                                    if position.side() == DiffSide::Original {
+                                        f.old_content.as_deref()
+                                    } else {
+                                        f.new_content.as_deref()
+                                    }
+                                })
+                            });
+                        let column = source
+                            .and_then(|s| s.split_inclusive('\n').nth(position.line() - 1))
+                            .and_then(|line| presentation::utf16_column(line, byte).ok());
+                        this.anchor = Some(position);
+                        if let Some(column) = column {
+                            this.column
+                                .update(cx, |s, cx| s.set_value(column.to_string(), window, cx));
+                        }
+                    }
+                }),
+            )
+            .child(viewer)
+            .context_menu(|menu, _, _| {
+                menu.menu("Go to definition", Box::new(Definition))
+                    .menu("Find references", Box::new(References))
             });
         let mut center = v_flex().flex_1().min_w_0().min_h_0();
         if self.settings_visible {
@@ -2357,6 +2899,26 @@ impl Render for Workspace {
                             })),
                     ),
             );
+            center = center.child(
+                h_flex()
+                    .gap_1()
+                    .child(
+                        Button::new("navigation-old")
+                            .small()
+                            .label("Original A")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigation_side(DiffSide::Original, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("navigation-new")
+                            .small()
+                            .label("Modified B")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigation_side(DiffSide::Modified, cx)
+                            })),
+                    ),
+            );
             if let Some(result) = &self.navigation {
                 let mut results = v_flex().gap_1();
                 for (index, location) in result.locations.iter().enumerate() {
@@ -2457,13 +3019,46 @@ impl Render for Workspace {
                 .child(
                     Button::new("more")
                         .label("Load older commits")
-                        .disabled(!self.more_commits)
+                        .disabled(!self.more_commits || self.commits_loading)
                         .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
                 );
         }
         let mut root = v_flex()
             .id("peer")
             .key_context("Peer")
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    if this.history_visible
+                        && f32::from(event.position.x)
+                            > this.preferences.sidebar_widths.files as f32
+                        && f32::from(event.position.y) > 95.
+                    {
+                        this.history_visible = false;
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                if let Some((index, start, widths)) = this.resize_drag.clone() {
+                    let delta = f32::from(event.position.x) - start;
+                    let width = if index == 0 {
+                        widths.files as f32 + delta
+                    } else {
+                        widths.feedback as f32 - delta
+                    };
+                    this.set_sidebar_width(index, width, window, cx);
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if this.resize_drag.take().is_some() {
+                        this.persist_widths(window, cx);
+                    }
+                }),
+            )
+            .on_action(cx.listener(|this, _: &SaveComment, w, c| this.save_comment(w, c)))
             .track_focus(&self.focus)
             .size_full()
             .bg(cx.theme().background)
@@ -2540,10 +3135,22 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Definition, w, c| this.navigate("auto", w, c)))
             .on_action(cx.listener(|this, _: &References, w, c| this.navigate("references", w, c)))
             .on_action(cx.listener(|this, _: &Cancel, w, c| {
+                if let Some((_, _, widths)) = this.resize_drag.take() {
+                    this.preferences.sidebar_widths = widths;
+                    this.persist_widths(w, c);
+                    c.notify();
+                    return;
+                }
                 if this.quick_visible {
                     this.close_palette(w, c);
                     return;
                 }
+                if this.editing.is_some() {
+                    this.cancel_edit(w, c);
+                    return;
+                }
+                this.history_visible = false;
+                this.branches_visible = false;
                 this.cancel_navigation();
                 this.settings_visible = false;
                 this.apply_theme(w, c);
@@ -2644,7 +3251,7 @@ impl Render for Workspace {
                     .child(recent),
             );
         }
-        let mut comparisons = h_flex().p_2().gap_1();
+        let mut comparisons = h_flex().p_2().gap_1().flex_wrap();
         for (mode, label) in [
             ("code", "Code"),
             ("all", "All changes"),
@@ -2683,9 +3290,67 @@ impl Render for Workspace {
                     Button::new("history")
                         .small()
                         .label("Commit history")
-                        .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
+                        .on_click(cx.listener(|this, _, w, c| {
+                            this.history_visible = !this.history_visible;
+                            if this.history_visible && this.commits.is_empty() {
+                                this.load_commits(w, c);
+                            }
+                            c.notify();
+                        })),
+                )
+                .child(
+                    Button::new("resume-changes")
+                        .small()
+                        .label("Changes")
+                        .on_click(cx.listener(|this, _, w, c| this.resume_changes(w, c))),
+                )
+                .child(
+                    Button::new("choose-branch")
+                        .small()
+                        .label("Branches")
+                        .on_click(cx.listener(|this, _, _, c| {
+                            this.branches_visible = !this.branches_visible;
+                            c.notify();
+                        })),
+                )
+                .child(
+                    Button::new("include-untracked")
+                        .small()
+                        .label("Untracked")
+                        .disabled(self.snapshot.as_ref().is_none_or(|s| {
+                            ["staged", "commit"].contains(&s.comparison.mode.as_str())
+                        }))
+                        .selected(
+                            self.snapshot
+                                .as_ref()
+                                .is_some_and(|s| s.comparison.include_untracked),
+                        )
+                        .on_click(cx.listener(|this, _, w, c| {
+                            if let Some(snapshot) = &this.snapshot {
+                                let mut comparison = snapshot.comparison.clone();
+                                comparison.include_untracked = !comparison.include_untracked;
+                                this.open(snapshot.repository.root.clone(), Some(comparison), w, c);
+                            }
+                        })),
                 ),
         );
+        if self.branches_visible {
+            let mut branch_rows = h_flex().gap_1().flex_wrap();
+            for branch in self.branches.clone() {
+                branch_rows = branch_rows.child(
+                    Button::new(SharedString::from(format!("choose-branch-{branch}")))
+                        .small()
+                        .label(branch.clone())
+                        .on_click(cx.listener(move |this, _, w, c| {
+                            this.reference
+                                .update(c, |s, c| s.set_value(branch.clone(), w, c));
+                            this.branches_visible = false;
+                            this.compare("branch", w, c);
+                        })),
+                );
+            }
+            root = root.child(branch_rows);
+        }
         if let Some(error) = &self.error {
             root = root.child(
                 div()
@@ -2731,6 +3396,8 @@ impl Render for Workspace {
                 )
                 .child(div().p_2().child(scope))
                 .child(Textarea::new(&self.comment).h(px(110.)))
+                .when(self.editing.is_some(), |panel| panel.child(Button::new("cancel-comment-edit").label("Cancel edit").on_click(cx.listener(|this,_,w,c| this.cancel_edit(w,c)))))
+                .when(!self.comment.read(cx).value().is_empty() && self.editing.is_none() && self.comment_fingerprint.as_ref().zip(self.content.as_ref()).is_some_and(|(fp,f)| fp != &f.fingerprint), |panel| panel.child(div().p_2().child("Draft source changed. Choose File scope or Line scope to confirm a new anchor before saving.")))
                 .child(
                     h_flex()
                         .p_2()
@@ -2748,10 +3415,8 @@ impl Render for Workspace {
                                 .on_click(cx.listener(|this, _, w, c| this.save_comment(w, c))),
                         )
                         .child(Button::new("file-comment").label("File scope").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.anchor = None;
-                                this.editing = None;
-                                cx.notify();
+                            cx.listener(|this, _, window, cx| {
+                                this.begin_comment(None,window,cx);
                             }),
                         )),
                 )
@@ -2783,17 +3448,26 @@ impl Render for Workspace {
                                 })),
                         )
                 } else {
-                    h_flex()
+                    h_flex().flex_wrap()
                         .p_2()
                         .gap_1()
                         .child(
+                            Button::new("comment-selected-line")
+                                .small().label("Line scope")
+                                .disabled(self.anchor.is_none() || self.loading || self.navigation_file.is_some())
+                                .on_click(cx.listener(|this,_,w,c| this.begin_comment(this.anchor.clone(),w,c))),
+                        )
+                        .child(
                             Button::new("discard-draft")
                                 .small()
-                                .label("Discard draft")
+                                .label(if self.editing.is_some() {"Discard edit"}else{"Discard draft"})
                                 .on_click(cx.listener(|this, _, w, c| {
+                                    if this.editing.is_some() {this.cancel_edit(w,c);return;}
                                     this.comment.update(c, |s, c| s.set_value("", w, c));
-                                    this.anchor = None;
+                                    this.comment_anchor = None;
+                                    this.comment_fingerprint = None;
                                     this.editing = None;
+                                    this.pending_new = None;
                                     this.remember(c);
                                     c.notify();
                                 })),
@@ -2812,58 +3486,27 @@ impl Render for Workspace {
                 });
         root = root
             .child(
-                div().flex_1().min_h_0().child(
-                    h_resizable("workspace-panels")
-                        .child(
-                            resizable_panel()
-                                .size(px(self.preferences.sidebar_widths.files as f32))
-                                .size_range(px(180.)..px(600.))
-                                .child(sidebar),
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .w(px(self.preferences.sidebar_widths.files as f32))
+                            .h_full()
+                            .flex_shrink_0()
+                            .child(sidebar),
+                    )
+                    .child(self.splitter(0, cx))
+                    .child(center.size_full().flex_1().min_w_0())
+                    .when(self.feedback_visible, |row| {
+                        row.child(self.splitter(1, cx)).child(
+                            div()
+                                .w(px(self.preferences.sidebar_widths.feedback as f32))
+                                .h_full()
+                                .flex_shrink_0()
+                                .child(feedback_panel),
                         )
-                        .child(
-                            resizable_panel()
-                                .size_range(px(400.)..px(4000.))
-                                .child(center.size_full()),
-                        )
-                        .when(self.feedback_visible, |row| {
-                            row.child(
-                                resizable_panel()
-                                    .size(px(self.preferences.sidebar_widths.feedback as f32))
-                                    .size_range(px(260.)..px(640.))
-                                    .child(feedback_panel),
-                            )
-                        })
-                        .on_resize(cx.listener(
-                            |this, state: &Entity<ResizableState>, window, cx| {
-                                let sizes = state.read(cx).sizes();
-                                if sizes.len() < 2 {
-                                    return;
-                                }
-                                let widths = SidebarWidths {
-                                    files: (f32::from(sizes[0]) as u32).clamp(180, 600),
-                                    feedback: sizes
-                                        .get(2)
-                                        .map(|s| (f32::from(*s) as u32).clamp(260, 640))
-                                        .unwrap_or(this.preferences.sidebar_widths.feedback),
-                                };
-                                this.preferences.sidebar_widths = widths.clone();
-                                let core = this.core.clone();
-                                let gate = this.gate.clone();
-                                this.task(
-                                    async move {
-                                        let _guard = gate.lock().await;
-                                        core.store.update(|d| {
-                                            d.preferences.sidebar_widths = widths;
-                                            Ok(())
-                                        })
-                                    },
-                                    window,
-                                    cx,
-                                    |_, (), _, _| {},
-                                );
-                            },
-                        )),
-                ),
+                    }),
             )
             .child(
                 div()
@@ -2873,7 +3516,12 @@ impl Render for Workspace {
                     .child(if self.loading {
                         "Loading…".into()
                     } else {
-                        self.notice.clone()
+                        format!(
+                            "{} · {} comments · {} reviewed",
+                            self.notice,
+                            self.queue.comments.len(),
+                            self.queue.reviewed.len()
+                        )
                     }),
             );
         if self.quick_visible {
@@ -3059,5 +3707,132 @@ mod tests {
         assert_eq!(all.len(), 100);
         assert_eq!(all.iter().map(DiffFile::additions).sum::<usize>(), 10_000);
         assert_eq!(all.iter().map(DiffFile::deletions).sum::<usize>(), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod review_coordinate_tests {
+    use super::{legacy_draft, source_byte, Position, SavedView};
+    #[test]
+    fn lsp_utf16_ranges_respect_unicode_tabs_and_crlf() {
+        let text = "\t中😀x\r\nlast\n";
+        assert_eq!(
+            source_byte(
+                text,
+                Position {
+                    line: 0,
+                    character: 4
+                }
+            ),
+            Some(8)
+        );
+        assert_eq!(
+            source_byte(
+                text,
+                Position {
+                    line: 0,
+                    character: 3
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            source_byte(
+                text,
+                Position {
+                    line: 1,
+                    character: 2
+                }
+            ),
+            Some(13)
+        );
+        assert_eq!(
+            source_byte(
+                text,
+                Position {
+                    line: 0,
+                    character: 6
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            source_byte(
+                text,
+                Position {
+                    line: 2,
+                    character: 0
+                }
+            ),
+            Some(text.len())
+        );
+    }
+    #[test]
+    fn legacy_saved_view_can_restore_edit_backup() {
+        let old: SavedView =
+            serde_json::from_str(r#"{"body":"draft","side":"old","line":10}"#).unwrap();
+        assert_eq!(old.line, Some(10));
+        assert!(old.fingerprint.is_none());
+        let edit = SavedView {
+            body: "edit".into(),
+            editing: Some("id".into()),
+            pending_new: Some(Box::new(old)),
+            ..Default::default()
+        };
+        let restored: SavedView =
+            serde_json::from_value(serde_json::to_value(edit).unwrap()).unwrap();
+        assert_eq!(restored.pending_new.unwrap().body, "draft");
+    }
+    #[test]
+    fn save_completion_does_not_clear_reanchored_or_replaced_drafts() {
+        let submitted = SavedView {
+            body: "draft".into(),
+            side: Some("old".into()),
+            line: Some(10),
+            fingerprint: Some("before".into()),
+            ..Default::default()
+        };
+        let mut current = submitted.clone();
+        current.scroll_offset = 99.;
+        assert!(current.same_draft(&submitted));
+        current.line = Some(20);
+        assert!(!current.same_draft(&submitted));
+        current = submitted.clone();
+        current.body = "newer typing".into();
+        assert!(!current.same_draft(&submitted));
+        current = submitted.clone();
+        current.fingerprint = Some("after".into());
+        assert!(!current.same_draft(&submitted));
+    }
+    #[test]
+    fn legacy_empty_current_view_does_not_hide_stale_draft_or_cross_paths() {
+        let old = "a".repeat(64);
+        let current = "b".repeat(64);
+        let mut views = std::collections::BTreeMap::new();
+        views.insert(format!("queue:path:{current}"), SavedView::default());
+        views.insert(
+            format!("queue:path:child:{old}"),
+            SavedView {
+                body: "other file".into(),
+                ..Default::default()
+            },
+        );
+        assert!(legacy_draft(&views, "queue:path", &current)
+            .unwrap()
+            .body
+            .is_empty());
+        views.insert(
+            format!("queue:path:{old}"),
+            SavedView {
+                body: "stale draft".into(),
+                side: Some("old".into()),
+                line: Some(10),
+                ..Default::default()
+            },
+        );
+        let view = legacy_draft(&views, "queue:path", &current).unwrap();
+        assert_eq!(view.body, "stale draft");
+        assert_eq!(view.fingerprint, Some(old));
+        assert_eq!(view.line, Some(10));
     }
 }

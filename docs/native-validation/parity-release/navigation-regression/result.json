@@ -1,0 +1,14 @@
+{
+  "passed": [
+    "native-window",
+    "repository-opened",
+    "caller-selected",
+    "single-definition-opens-directly",
+    "frozen-source-visible",
+    "frozen-source-search",
+    "original-anchor-restored",
+    "draft-saved-to-original-anchor",
+    "real-reference-results"
+  ],
+  "scenario": "navigation"
+}
