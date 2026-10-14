@@ -1,0 +1,28 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "old-line-comment-saved",
+    "comment-edit-saved",
+    "comment-deleted",
+    "old-comment-recreated",
+    "new-line-comment-saved",
+    "file-comment-saved",
+    "reviewed-saved",
+    "draft-persisted",
+    "comparison-staged",
+    "comparison-unstaged",
+    "comparison-all",
+    "comparison-branch",
+    "comparison-commit",
+    "return-to-working-tree",
+    "rapid-switch-final-state",
+    "clean-shutdown",
+    "native-window-created",
+    "repository-opened",
+    "restart-review-restored",
+    "outdated-comment-retained",
+    "reviewed-invalidated"
+  ],
+  "scope": "actual X11 window input plus persisted-state assertions; screenshots require visual inspection"
+}

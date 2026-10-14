@@ -1,0 +1,9 @@
+[
+  {
+    "file": "hello.rs",
+    "line": 2,
+    "side": "old",
+    "comment": "Old-side native review",
+    "outdated": true
+  }
+]

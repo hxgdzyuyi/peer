@@ -1,0 +1,8 @@
+{
+  "files": 100,
+  "old_lines": 10000,
+  "new_lines": 10000,
+  "explicit_deferred_lines": 22000,
+  "elapsed_including_fixed_waits_seconds": 4.025436865999836,
+  "latency_measurement": "not a performance benchmark; includes fixed waits and software rendering"
+}

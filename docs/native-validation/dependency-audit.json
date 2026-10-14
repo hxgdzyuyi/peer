@@ -1,0 +1,6 @@
+{
+  "no_tauri_app_runtime": true,
+  "no_webview_runtime": true,
+  "linux_and_macos_trees_no_tauri_or_webkit": true,
+  "all_target_lock_note": "tauri-winrt-notification remains solely through notify-rust on Windows; this is a notification helper, not the Tauri runtime. Windows desktop is not accepted."
+}

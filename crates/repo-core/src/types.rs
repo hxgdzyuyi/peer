@@ -252,6 +252,8 @@ pub struct ImportedTheme {
 #[serde(rename_all = "camelCase", default)]
 pub struct AppData {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub native_state: BTreeMap<String, serde_json::Value>,
     pub preferences: Preferences,
     pub queues: BTreeMap<String, ReviewQueue>,
     pub repository_ids: BTreeMap<String, String>,
@@ -261,6 +263,7 @@ impl Default for AppData {
     fn default() -> Self {
         Self {
             schema_version: 1,
+            native_state: BTreeMap::new(),
             preferences: Preferences::default(),
             queues: BTreeMap::new(),
             repository_ids: BTreeMap::new(),

@@ -1,0 +1,2477 @@
+use gpui_kit::component::resizable::{h_resizable, resizable_panel, ResizableState};
+use gpui_kit::{
+    component::{
+        button::{Button, ButtonVariants},
+        diff::*,
+        input::{Input, InputEvent, InputState, Textarea, TextareaState},
+        *,
+    },
+    *,
+};
+use peer_core::Inspector;
+use peer_core::{
+    navigation::{NavigationFile, NavigationRequest, NavigationResult, Position},
+    presentation, *,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+
+actions!(
+    peer,
+    [
+        Open,
+        Refresh,
+        QuickOpen,
+        Find,
+        GoLine,
+        Back,
+        Settings,
+        Definition,
+        References,
+        Cancel,
+        Quit,
+        NextFile,
+        PreviousFile
+    ]
+);
+pub fn init(cx: &mut App) {
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.set_menus([
+        Menu::new("Peer").items([
+            MenuItem::action("Settings…", Settings),
+            MenuItem::separator(),
+            MenuItem::action("Quit Peer", Quit),
+        ]),
+        Menu::new("File").items([
+            MenuItem::action("Open repository…", Open),
+            MenuItem::action("Refresh", Refresh),
+        ]),
+        Menu::new("Edit").items([
+            MenuItem::action("Undo", input::Undo),
+            MenuItem::action("Redo", input::Redo),
+            MenuItem::separator(),
+            MenuItem::action("Cut", input::Cut),
+            MenuItem::action("Copy", input::Copy),
+            MenuItem::action("Paste", input::Paste),
+            MenuItem::action("Select all", input::SelectAll),
+        ]),
+        Menu::new("Navigate").items([
+            MenuItem::action("Quick open", QuickOpen),
+            MenuItem::action("Find", Find),
+            MenuItem::action("Go to line", GoLine),
+            MenuItem::action("Back", Back),
+            MenuItem::action("Definition", Definition),
+            MenuItem::action("References", References),
+        ]),
+    ]);
+    cx.bind_keys([
+        KeyBinding::new("secondary-q", Quit, None),
+        KeyBinding::new("down", NextFile, Some("PeerQuickOpen")),
+        KeyBinding::new("up", PreviousFile, Some("PeerQuickOpen")),
+        KeyBinding::new("ctrl-n", NextFile, Some("PeerQuickOpen")),
+        KeyBinding::new("ctrl-p", PreviousFile, Some("PeerQuickOpen")),
+        KeyBinding::new("secondary-o", Open, Some("Peer")),
+        KeyBinding::new("secondary-r", Refresh, Some("Peer")),
+        KeyBinding::new("secondary-p", QuickOpen, Some("Peer")),
+        KeyBinding::new("secondary-f", Find, Some("Peer")),
+        KeyBinding::new("secondary-g", GoLine, Some("Peer")),
+        KeyBinding::new("alt-left", Back, Some("Peer")),
+        KeyBinding::new("secondary-,", Settings, Some("Peer")),
+        KeyBinding::new("f12", Definition, Some("Peer")),
+        KeyBinding::new("shift-f12", References, Some("Peer")),
+        KeyBinding::new("escape", Cancel, Some("Peer")),
+    ]);
+}
+
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct SavedView {
+    body: String,
+    side: Option<String>,
+    line: Option<usize>,
+    editing: Option<String>,
+    scroll_line: Option<usize>,
+    scroll_side: Option<String>,
+    scroll_offset: f32,
+    horizontal: f32,
+}
+
+pub struct Workspace {
+    pending_jobs: std::cell::RefCell<Vec<tokio::task::JoinHandle<()>>>,
+    core: Arc<Inspector>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    gate: Arc<tokio::sync::Mutex<()>>,
+    epoch: Arc<AtomicU64>,
+    file_epoch: u64,
+    themes: Vec<ImportedTheme>,
+    feedback_pending: bool,
+    preferences: Preferences,
+    snapshot: Option<Snapshot>,
+    content: Option<Arc<FileContent>>,
+    queue: ReviewQueue,
+    all_files: bool,
+    loaded_files: BTreeMap<String, Arc<FileContent>>,
+    diff: Entity<DiffState>,
+    path: Entity<InputState>,
+    filter: Entity<InputState>,
+    reference: Entity<InputState>,
+    search: Entity<InputState>,
+    line: Entity<InputState>,
+    column: Entity<InputState>,
+    comment: Entity<TextareaState>,
+    settings: Entity<TextareaState>,
+    focus: FocusHandle,
+    subscriptions: Vec<Subscription>,
+    loading: bool,
+    error: Option<String>,
+    notice: String,
+    anchor: Option<DiffLinePosition>,
+    editing: Option<String>,
+    drafts: BTreeMap<String, String>,
+    saved_views: BTreeMap<String, SavedView>,
+    pending_saves: Vec<tokio::task::JoinHandle<Result<(), String>>>,
+    quick_index: usize,
+    tree_scroll: UniformListScrollHandle,
+    quick_scroll_pending: bool,
+    collapsed: BTreeSet<String>,
+    history: Vec<String>,
+    branches: Vec<String>,
+    commits: Vec<Commit>,
+    more_commits: bool,
+    history_visible: bool,
+    settings_visible: bool,
+    recent_visible: bool,
+    hits: Vec<presentation::SearchHit>,
+    hit: usize,
+    navigation_history: Vec<(
+        Vec<DiffFile>,
+        Option<NavigationFile>,
+        Option<(DiffLinePosition, f32)>,
+        Option<DiffLinePosition>,
+        f32,
+    )>,
+    navigation: Option<NavigationResult>,
+    navigation_file: Option<NavigationFile>,
+    navigation_request: Option<String>,
+}
+
+fn input(placeholder: &str, window: &mut Window, cx: &mut App) -> Entity<InputState> {
+    let placeholder = placeholder.to_owned();
+    cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+}
+fn side(side: DiffSide) -> &'static str {
+    if side == DiffSide::Original {
+        "old"
+    } else {
+        "new"
+    }
+}
+fn diff_side(side: &str) -> DiffSide {
+    if side == "old" {
+        DiffSide::Original
+    } else {
+        DiffSide::Modified
+    }
+}
+fn files(content: &FileContent, code: bool) -> Result<Vec<DiffFile>, String> {
+    if content.deferred || content.kind != "text" {
+        return Ok(vec![]);
+    }
+    if code || content.old_content == content.new_content {
+        return Ok(vec![DiffFile::unchanged(
+            content.path.clone(),
+            content
+                .new_content
+                .as_deref()
+                .or(content.old_content.as_deref())
+                .unwrap_or(""),
+        )]);
+    }
+    let patch = presentation::unified_patch(content);
+    if patch.is_empty() {
+        return Ok(vec![DiffFile::unchanged(content.path.clone(), "")]);
+    }
+    DiffFile::parse(&patch)
+        .map(|files| {
+            files
+                .into_iter()
+                .map(|f| f.with_display_options(content.tab_width as usize, false))
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+impl Workspace {
+    pub fn new(
+        core: Arc<Inspector>,
+        runtime: Arc<tokio::runtime::Runtime>,
+        preferences: Preferences,
+        initial: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        window.set_window_title("Peer");
+        let path = input("Repository path", window, cx);
+        let filter = input("Filter files / quick open", window, cx);
+        let reference = input("Branch or commit", window, cx);
+        let search = input("Find in old/new source", window, cx);
+        let line = input("Line", window, cx);
+        let column = input("UTF-16 column (0-based)", window, cx);
+        let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Review comment"));
+        let settings = cx.new(|cx| TextareaState::new(window, cx).placeholder("Preferences JSON"));
+        let diff = cx.new(|cx| {
+            DiffState::new([], cx).with_mode(if preferences.diff_layout == "split" {
+                DiffMode::Split
+            } else {
+                DiffMode::Unified
+            })
+        });
+        let subscriptions = vec![cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify())];
+        let mut this = Self {
+            pending_jobs: Default::default(),
+            core,
+            runtime,
+            gate: Arc::new(tokio::sync::Mutex::new(())),
+            epoch: Arc::new(AtomicU64::new(0)),
+            file_epoch: 0,
+            themes: crate::themes::builtins(),
+            feedback_pending: false,
+            preferences,
+            snapshot: None,
+            content: None,
+            queue: ReviewQueue::default(),
+            all_files: false,
+            loaded_files: BTreeMap::new(),
+            diff,
+            path,
+            filter,
+            reference,
+            search,
+            line,
+            column,
+            comment,
+            settings,
+            focus: cx.focus_handle(),
+            subscriptions,
+            loading: false,
+            error: None,
+            notice: String::new(),
+            anchor: None,
+            editing: None,
+            drafts: BTreeMap::new(),
+            saved_views: BTreeMap::new(),
+            pending_saves: vec![],
+            quick_index: 0,
+            tree_scroll: UniformListScrollHandle::new(),
+            quick_scroll_pending: false,
+            collapsed: BTreeSet::new(),
+            history: vec![],
+            branches: vec![],
+            commits: vec![],
+            more_commits: false,
+            history_visible: false,
+            settings_visible: false,
+            recent_visible: false,
+            hits: vec![],
+            hit: 0,
+            navigation_history: vec![],
+            navigation: None,
+            navigation_file: None,
+            navigation_request: None,
+        };
+        this.subscriptions.push(cx.subscribe_in(
+            &this.filter.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    this.quick_index = 0;
+                    this.quick_scroll_pending = true;
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } => {
+                    let filter = this.filter.read(cx).value().to_lowercase();
+                    let id = this
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| {
+                            s.files
+                                .iter()
+                                .filter(|f| f.path.to_lowercase().contains(&filter))
+                                .nth(this.quick_index)
+                        })
+                        .map(|f| f.id.clone());
+                    if let Some(id) = id {
+                        this.select(id, false, window, cx);
+                        this.diff.read(cx).focus_handle(cx).focus(window, cx);
+                    }
+                }
+                _ => {}
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.path.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.open(this.path.read(cx).value().to_string(), None, window, cx);
+                }
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.search.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { shift, .. } = event {
+                    this.find(if *shift { -1 } else { 1 }, window, cx);
+                }
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.line.clone(),
+            window,
+            |this, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.jump(cx);
+                }
+            },
+        ));
+        this.subscriptions
+            .push(cx.observe_window_appearance(window, |this, window, cx| {
+                if this.preferences.appearance.mode == "system" {
+                    this.apply_theme(window, cx);
+                }
+            }));
+        this.subscriptions.push(cx.on_app_quit(|this, cx| {
+            this.cancel_navigation();
+            this.remember(cx);
+            let jobs = std::mem::take(this.pending_jobs.get_mut());
+            let saves = std::mem::take(&mut this.pending_saves);
+            async move {
+                for job in jobs {
+                    let _ = job.await;
+                }
+                for save in saves {
+                    match save.await {
+                        Ok(Ok(())) => {}
+                        result => eprintln!("Session persistence failed: {result:?}"),
+                    }
+                }
+            }
+        }));
+        window.on_window_should_close(cx, |_, cx| {
+            cx.quit();
+            false
+        });
+        this.apply_theme(window, cx);
+        if let Some(path) = initial {
+            this.path
+                .update(cx, |s, cx| s.set_value(path.clone(), window, cx));
+            this.open(path, None, window, cx);
+        }
+        this
+    }
+    /// Tokio owns every core request. GPUI awaits only the oneshot, never block_on.
+    fn task<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, String>> + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let generation = self.file_epoch;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_jobs
+            .borrow_mut()
+            .retain(|job| !job.is_finished());
+        self.pending_jobs
+            .borrow_mut()
+            .push(self.runtime.spawn(async move {
+                let result = future.await;
+                let _ = tx.send(result);
+            }));
+        cx.spawn_in(window, async move |this, cx| {
+            let result = rx
+                .await
+                .unwrap_or_else(|_| Err("Background task stopped unexpectedly".into()));
+            let _ = this.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(value) => done(this, value, window, cx),
+                    Err(error) => {
+                        this.feedback_pending = false;
+                        if this.epoch.load(Ordering::SeqCst) == epoch
+                            && this.file_epoch == generation
+                        {
+                            this.loading = false;
+                            this.notice = "Action failed; see error above".into();
+                            this.error = Some(error);
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn draft_key(&self) -> Option<String> {
+        self.content.as_ref().map(|f| {
+            format!(
+                "{}:{}:{}",
+                self.snapshot
+                    .as_ref()
+                    .map(|s| s.queue_id.as_str())
+                    .unwrap_or(""),
+                f.path,
+                f.fingerprint
+            )
+        })
+    }
+    fn remember(&mut self, cx: &mut Context<Self>) {
+        // Frozen navigation sources cannot replace the review draft or its source anchor.
+        if self.navigation_file.is_some() {
+            return;
+        }
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return;
+        };
+        let root = snapshot.repository.root.clone();
+        let selected_path = self.content.as_ref().map(|f| f.path.clone());
+        let comparison = snapshot.comparison.clone();
+        let viewport = self
+            .diff
+            .read(cx)
+            .viewport_anchor()
+            .filter(|(p, _)| selected_path.as_deref() == Some(p.path().as_str()));
+        let view = SavedView {
+            body: self.comment.read(cx).value().to_string(),
+            side: self.anchor.as_ref().map(|a| side(a.side()).into()),
+            line: self.anchor.as_ref().map(|a| a.line()),
+            editing: self.editing.clone(),
+            scroll_line: viewport.as_ref().map(|(a, _)| a.line()),
+            scroll_side: viewport.as_ref().map(|(a, _)| side(a.side()).into()),
+            scroll_offset: viewport.map(|(_, offset)| offset).unwrap_or_default(),
+            horizontal: self.diff.read(cx).horizontal_offset(),
+        };
+        let key = self.draft_key();
+        if let Some(key) = &key {
+            self.saved_views.insert(key.clone(), view.clone());
+        }
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.pending_saves.retain(|save| !save.is_finished());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_saves.push(self.runtime.spawn(async move {
+            let _guard = gate.lock().await;
+            let result = core.store.update(|data| {
+                let legacy_top = data
+                    .preferences
+                    .sessions
+                    .get(&root)
+                    .map(|s| s.scroll_top)
+                    .unwrap_or(0.);
+                data.preferences.sessions.insert(
+                    root,
+                    Session {
+                        comparison: comparison.clone(),
+                        selected_path,
+                        scroll_top: legacy_top,
+                        last_changes: Some(comparison),
+                    },
+                );
+                if let Some(key) = key {
+                    data.native_state
+                        .insert(key, serde_json::to_value(view).map_err(|e| e.to_string())?);
+                }
+                Ok(())
+            });
+            if let Err(error) = &result {
+                eprintln!("Cannot persist native session: {error}");
+            }
+            let _ = tx.send(result.clone());
+            result
+        }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Err(error)) = rx.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(format!("Cannot save session: {error}"));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+    fn cancel_navigation(&mut self) {
+        if let Some(request) = self.navigation_request.take() {
+            self.core.cancel_navigation(&request);
+        }
+        self.navigation = None;
+    }
+    fn open(
+        &mut self,
+        path: String,
+        comparison: Option<Comparison>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remember(cx);
+        self.cancel_navigation();
+        let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        self.file_epoch += 1;
+        self.all_files = false;
+        self.loaded_files.clear();
+        self.loading = true;
+        self.error = None;
+        self.content = None;
+        self.snapshot = None;
+        self.anchor = None;
+        self.history.clear();
+        self.navigation_history.clear();
+        self.navigation_file = None;
+        self.diff.update(cx, |s, cx| s.set_files([], cx));
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        let clock = self.epoch.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                if clock.load(Ordering::SeqCst) != epoch {
+                    return Ok(None);
+                }
+                let snapshot = core.open_repository(&path, comparison).await?;
+                let queue = core.queue(&snapshot.id).await?;
+                let data = core.store.read()?;
+                let preferences = data.preferences;
+                let saved_views = data.native_state;
+                let themes = data.themes;
+                let branches = core.branches(&snapshot.id).await?;
+                Ok(Some((
+                    snapshot,
+                    queue,
+                    preferences,
+                    branches,
+                    saved_views,
+                    themes,
+                )))
+            },
+            window,
+            cx,
+            move |this, result, window, cx| {
+                if this.epoch.load(Ordering::SeqCst) != epoch {
+                    return;
+                }
+                this.loading = false;
+                if let Some((snapshot, queue, preferences, branches, saved_views, themes)) = result
+                {
+                    let selected = preferences
+                        .sessions
+                        .get(&snapshot.repository.root)
+                        .and_then(|s| s.selected_path.clone());
+                    this.path.update(cx, |s, cx| {
+                        s.set_value(snapshot.repository.root.clone(), window, cx)
+                    });
+                    this.themes = crate::themes::builtins();
+                    this.themes.extend(themes);
+                    this.saved_views = saved_views
+                        .into_iter()
+                        .filter_map(|(key, value)| {
+                            serde_json::from_value(value).ok().map(|view| (key, view))
+                        })
+                        .collect();
+                    this.queue = queue;
+                    this.preferences = preferences;
+                    this.branches = branches;
+                    this.commits.clear();
+                    this.snapshot = Some(snapshot);
+                    this.apply_theme(window, cx);
+                    let first = this
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| {
+                            selected
+                                .and_then(|p| s.files.iter().find(|f| f.path == p))
+                                .or(s.files.first())
+                        })
+                        .map(|f| f.id.clone());
+                    if let Some(id) = first {
+                        this.select(id, false, window, cx);
+                    } else {
+                        this.remember(cx);
+                    }
+                }
+            },
+        );
+        cx.notify();
+    }
+    fn select(&mut self, id: String, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.all_files && !force {
+            if let Some(path) = self
+                .loaded_files
+                .values()
+                .find(|f| f.file_id == id)
+                .map(|f| f.path.clone())
+            {
+                self.activate_loaded(&path, window, cx);
+                self.diff.update(cx, |s, cx| s.scroll_to_file(&path, cx));
+                return;
+            }
+        }
+        self.all_files = false;
+        self.loaded_files.clear();
+        self.remember(cx);
+        self.cancel_navigation();
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return;
+        };
+        let snapshot_id = snapshot.id.clone();
+        let code = snapshot.comparison.view == "code";
+        if let Some(content) = &self.content {
+            if content.file_id != id {
+                self.history.push(content.file_id.clone());
+                if self.history.len() > 100 {
+                    self.history.remove(0);
+                }
+            }
+        }
+        self.file_epoch += 1;
+        let generation = self.file_epoch;
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        self.content = None;
+        self.navigation_file = None;
+        self.navigation_history.clear();
+        self.anchor = None;
+        self.editing = None;
+        self.hits.clear();
+        self.error = None;
+        self.loading = true;
+        self.comment.update(cx, |s, cx| s.set_value("", window, cx));
+        self.diff.update(cx, |s, cx| s.set_files([], cx));
+        let core = self.core.clone();
+        self.task(
+            async move {
+                let content = core.read_file(&snapshot_id, &id, force).await?;
+                let result = tokio::task::spawn_blocking(move || {
+                    let files = files(&content, code)?;
+                    Ok::<_, String>((Arc::new(content), files))
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                Ok(result)
+            },
+            window,
+            cx,
+            move |this, (content, files), window, cx| {
+                if this.file_epoch != generation || this.epoch.load(Ordering::SeqCst) != epoch {
+                    return;
+                }
+                this.loading = false;
+                let files = files.into_iter().map(|f| {
+                    f.with_display_options(
+                        content.tab_width as usize,
+                        this.preferences.show_whitespace,
+                    )
+                });
+                this.diff.update(cx, |s, cx| s.set_files(files, cx));
+                this.content = Some(content);
+                if let Some(view) = this
+                    .draft_key()
+                    .and_then(|key| this.saved_views.get(&key))
+                    .cloned()
+                {
+                    this.comment
+                        .update(cx, |s, cx| s.set_value(view.body, window, cx));
+                    this.editing = view.editing;
+                    let path = this
+                        .content
+                        .as_ref()
+                        .map(|f| f.path.clone())
+                        .unwrap_or_default();
+                    this.anchor = view.line.map(|line| {
+                        DiffLinePosition::new(
+                            path.clone(),
+                            diff_side(view.side.as_deref().unwrap_or("new")),
+                            line,
+                        )
+                    });
+                    if let Some(line) = view.scroll_line {
+                        this.diff.update(cx, |s, cx| {
+                            s.restore_viewport(
+                                DiffLinePosition::new(
+                                    path,
+                                    diff_side(view.scroll_side.as_deref().unwrap_or("new")),
+                                    line,
+                                ),
+                                view.scroll_offset,
+                                cx,
+                            )
+                        });
+                    }
+                } else if let Some(top) = this
+                    .snapshot
+                    .as_ref()
+                    .and_then(|snapshot| this.preferences.sessions.get(&snapshot.repository.root))
+                    .map(|session| session.scroll_top)
+                {
+                    this.diff
+                        .update(cx, |s, cx| s.restore_legacy_scroll(top as f32, cx));
+                }
+                this.remember(cx);
+            },
+        );
+        cx.notify();
+    }
+    fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(s) = &self.snapshot {
+            self.open(
+                s.repository.root.clone(),
+                Some(s.comparison.clone()),
+                window,
+                cx,
+            );
+        } else {
+            self.open(self.path.read(cx).value().to_string(), None, window, cx);
+        }
+    }
+    fn compare(&mut self, mode: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = &self.snapshot else { return };
+        let path = s.repository.root.clone();
+        let comparison = Comparison {
+            view: if mode == "code" { "code" } else { "changes" }.into(),
+            mode: if mode == "code" { "all" } else { mode }.into(),
+            base_ref: if ["branch", "commit"].contains(&mode) {
+                Some(self.reference.read(cx).value().to_string())
+            } else {
+                None
+            },
+            include_untracked: true,
+        };
+        self.open(path, Some(comparison), window, cx);
+    }
+    fn choose_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Open repository".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| match receiver.await {
+            Ok(Ok(Some(paths))) => {
+                if let Some(path) = paths.first() {
+                    let path = path.to_string_lossy().into_owned();
+                    let _ =
+                        this.update_in(cx, |this, window, cx| this.open(path, None, window, cx));
+                }
+            }
+            Ok(Err(error)) => {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(error.to_string());
+                    cx.notify();
+                });
+            }
+            _ => {}
+        })
+        .detach();
+    }
+    fn update_queue(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let id = snapshot.id.clone();
+        let core = self.core.clone();
+        self.task(
+            async move { core.queue(&id).await.map(|q| (id, q)) },
+            window,
+            cx,
+            |this, (id, queue), _, _| {
+                if this.snapshot.as_ref().is_some_and(|s| s.id == id) {
+                    this.queue = queue;
+                }
+            },
+        );
+    }
+    fn save_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.feedback_pending {
+            return;
+        }
+        let (Some(snapshot), Some(content)) = (&self.snapshot, &self.content) else {
+            return;
+        };
+        let body = self.comment.read(cx).value().to_string();
+        if body.trim().is_empty() {
+            return;
+        }
+        let queue = snapshot.queue_id.clone();
+        let editing = self.editing.clone();
+        let key = self.draft_key();
+        let generation = self.file_epoch;
+        let comment = NewComment {
+            snapshot_id: snapshot.id.clone(),
+            file_id: content.file_id.clone(),
+            fingerprint: content.fingerprint.clone(),
+            body: body.clone(),
+            side: if snapshot.comparison.view == "code" {
+                None
+            } else {
+                self.anchor.as_ref().map(|a| side(a.side()).into())
+            },
+            line: self.anchor.as_ref().map(|a| a.line() as u32),
+        };
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        let saved_key = key.clone();
+        self.feedback_pending = true;
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                if let Some(id) = editing {
+                    core.update_comment(&queue, &id, &body)?;
+                } else {
+                    core.add_comment(comment).await?;
+                }
+                core.store.update(|d| {
+                    if let Some(key) = saved_key {
+                        if let Some(v) = d.native_state.get_mut(&key) {
+                            v["body"] = "".into();
+                            v["line"] = serde_json::Value::Null;
+                            v["editing"] = serde_json::Value::Null;
+                        }
+                    }
+                    Ok(())
+                })
+            },
+            window,
+            cx,
+            move |this, (), window, cx| {
+                this.feedback_pending = false;
+                if let Some(key) = key {
+                    this.drafts.remove(&key);
+                    if let Some(view) = this.saved_views.get_mut(&key) {
+                        view.body.clear();
+                        view.line = None;
+                        view.side = None;
+                        view.editing = None;
+                    }
+                }
+                if this.file_epoch == generation {
+                    this.comment.update(cx, |s, cx| s.set_value("", window, cx));
+                    this.editing = None;
+                    this.anchor = None;
+                }
+                this.update_queue(window, cx);
+            },
+        );
+    }
+    fn delete_comment(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let queue = snapshot.queue_id.clone();
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.delete_comments(&queue, Some(&id))
+            },
+            window,
+            cx,
+            |this, (), window, cx| this.update_queue(window, cx),
+        );
+    }
+    fn reviewed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(snapshot), Some(content)) = (&self.snapshot, &self.content) else {
+            return;
+        };
+        let (id, file, fingerprint) = (
+            snapshot.id.clone(),
+            content.file_id.clone(),
+            content.fingerprint.clone(),
+        );
+        let reviewed = self.queue.reviewed.get(&content.path) != Some(&fingerprint);
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.set_reviewed(&id, &file, &fingerprint, reviewed).await
+            },
+            window,
+            cx,
+            |this, (), window, cx| this.update_queue(window, cx),
+        );
+    }
+    fn export(&mut self, save: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let id = snapshot.id.clone();
+        let core = self.core.clone();
+        self.task(
+            async move { core.export(&id).await },
+            window,
+            cx,
+            move |this, text, window, cx| {
+                if !save {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    this.notice = "Feedback copied".into();
+                    return;
+                }
+                let receiver =
+                    cx.prompt_for_new_path(std::path::Path::new("."), Some("feedback.json"));
+                cx.spawn_in(window, async move |this, cx| {
+                    if let Ok(Ok(Some(path))) = receiver.await {
+                        let _ = this.update_in(cx, |this, window, cx| {
+                            this.task(
+                                async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        std::fs::write(path, text).map_err(|e| e.to_string())
+                                    })
+                                    .await
+                                    .map_err(|e| e.to_string())?
+                                },
+                                window,
+                                cx,
+                                |this, (), _, _| this.notice = "Feedback saved".into(),
+                            );
+                        });
+                    }
+                })
+                .detach();
+            },
+        );
+    }
+    fn find(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(content) = self.content.clone() else {
+            return;
+        };
+        let query = self.search.read(cx).value().to_string();
+        let generation = self.file_epoch;
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let navigation_file = self.navigation_file.clone();
+        let path = navigation_file
+            .as_ref()
+            .map(|f| f.path.clone())
+            .unwrap_or_else(|| content.path.clone());
+        let check = query.clone();
+        self.task(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    if let Some(file) = navigation_file {
+                        let mut visible = (*content).clone();
+                        visible.path = file.path;
+                        visible.old_content = None;
+                        visible.new_content = file.content;
+                        presentation::search(&visible, &query)
+                    } else {
+                        presentation::search(&content, &query)
+                    }
+                })
+                .await
+                .map_err(|e| e.to_string())
+            },
+            window,
+            cx,
+            move |this, hits, _, cx| {
+                if this.file_epoch != generation
+                    || this.epoch.load(Ordering::SeqCst) != epoch
+                    || this.search.read(cx).value().as_str() != check
+                {
+                    return;
+                }
+                if hits.is_empty() {
+                    this.notice = "No matches".into();
+                    this.hits = hits;
+                    return;
+                }
+                if hits != this.hits {
+                    this.hit = 0;
+                } else {
+                    this.hit = (this.hit as isize + delta).rem_euclid(hits.len() as isize) as usize;
+                }
+                let hit = &hits[this.hit];
+                let position = DiffLinePosition::new(path, diff_side(hit.side), hit.line as usize);
+                this.anchor = Some(position.clone());
+                this.diff.update(cx, |s, cx| s.scroll_to_line(position, cx));
+                this.notice = format!(
+                    "Match {}/{} — {} line {}, UTF-16 column {}",
+                    this.hit + 1,
+                    hits.len(),
+                    hit.side,
+                    hit.line,
+                    hit.utf16
+                );
+                this.hits = hits;
+            },
+        );
+    }
+    fn jump(&mut self, cx: &mut Context<Self>) {
+        let Some(content) = &self.content else { return };
+        let Ok(line) = self.line.read(cx).value().parse::<usize>() else {
+            self.error = Some("Enter a positive source line".into());
+            return;
+        };
+        if line == 0 {
+            return;
+        }
+        let selected_side =
+            self.anchor
+                .as_ref()
+                .map(|p| p.side())
+                .unwrap_or(if content.new_content.is_some() {
+                    DiffSide::Modified
+                } else {
+                    DiffSide::Original
+                });
+        let selected_side = if self.navigation_file.is_some() {
+            DiffSide::Modified
+        } else {
+            selected_side
+        };
+        let source = if let Some(file) = &self.navigation_file {
+            &file.content
+        } else if selected_side == DiffSide::Original {
+            &content.old_content
+        } else {
+            &content.new_content
+        };
+        if !source.as_ref().is_some_and(|s| line <= s.lines().count()) {
+            self.error = Some("Line is outside this source".into());
+            return;
+        }
+        let path = self
+            .navigation_file
+            .as_ref()
+            .map(|f| f.path.clone())
+            .unwrap_or_else(|| content.path.clone());
+        let position = DiffLinePosition::new(path, selected_side, line);
+        self.anchor = Some(position.clone());
+        self.diff.update(cx, |s, cx| s.scroll_to_line(position, cx));
+        cx.notify();
+    }
+    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((files, file, viewport, anchor, horizontal)) = self.navigation_history.pop() {
+            self.file_epoch += 1;
+            self.cancel_navigation();
+            self.navigation_file = file;
+            self.anchor = anchor;
+            self.hits.clear();
+            self.diff.update(cx, |s, cx| {
+                s.set_files(files, cx);
+                s.restore_horizontal(horizontal, cx);
+                if let Some((position, offset)) = viewport {
+                    s.restore_viewport(position, offset, cx);
+                }
+            });
+            cx.notify();
+            return;
+        }
+        if let Some(id) = self.history.pop() {
+            let history = std::mem::take(&mut self.history);
+            self.select(id, false, window, cx);
+            self.history = history;
+        }
+    }
+    fn load_commits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let id = snapshot.id.clone();
+        let offset = self.commits.len() as u32;
+        let core = self.core.clone();
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        self.task(
+            async move { core.commits(&id, offset, 50).await },
+            window,
+            cx,
+            move |this, page, _, _| {
+                if this.epoch.load(Ordering::SeqCst) == epoch {
+                    this.more_commits = page.has_more;
+                    this.commits.extend(page.commits);
+                    this.history_visible = true;
+                }
+            },
+        );
+    }
+    fn apply_theme(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let mode = match self.preferences.appearance.mode.as_str() {
+            "dark" => ThemeMode::Dark,
+            "light" => ThemeMode::Light,
+            _ => {
+                if matches!(
+                    window.appearance(),
+                    WindowAppearance::Dark | WindowAppearance::VibrantDark
+                ) {
+                    ThemeMode::Dark
+                } else {
+                    ThemeMode::Light
+                }
+            }
+        };
+        Theme::change(mode, Some(window), cx);
+        let id = if mode == ThemeMode::Dark {
+            &self.preferences.appearance.dark_theme
+        } else {
+            &self.preferences.appearance.light_theme
+        };
+        if let Some(theme) = self.themes.iter().find(|t| &t.id == id) {
+            crate::themes::apply(theme, self.preferences.code_font_size, cx);
+        }
+    }
+    fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match serde_json::to_string_pretty(&self.preferences) {
+            Ok(value) => {
+                self.settings
+                    .update(cx, |s, cx| s.set_value(value, window, cx));
+                self.settings_visible = true;
+            }
+            Err(e) => self.error = Some(e.to_string()),
+        }
+        cx.notify();
+    }
+    fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let preferences = match serde_json::from_str::<Preferences>(&self.settings.read(cx).value())
+        {
+            Ok(p) => p,
+            Err(e) => {
+                self.error = Some(e.to_string());
+                return;
+            }
+        };
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                let mut preferences = preferences;
+                let latest = core.store.read()?.preferences;
+                preferences.sessions = latest.sessions;
+                preferences.recent_repositories = latest.recent_repositories;
+                preferences.last_repository = latest.last_repository;
+                core.save_preferences(preferences.clone())?;
+                Ok(preferences)
+            },
+            window,
+            cx,
+            |this, preferences, window, cx| {
+                this.preferences = preferences;
+                this.settings_visible = false;
+                this.apply_theme(window, cx);
+                if let Some(content) = &this.content {
+                    let width = content.tab_width;
+                    let display = this
+                        .diff
+                        .read(cx)
+                        .files()
+                        .iter()
+                        .cloned()
+                        .map(|f| {
+                            f.with_display_options(width as usize, this.preferences.show_whitespace)
+                        })
+                        .collect::<Vec<_>>();
+                    this.diff.update(cx, |s, cx| s.set_files(display, cx));
+                }
+                this.diff.update(cx, |s, cx| {
+                    s.set_mode(
+                        if this.preferences.diff_layout == "split" {
+                            DiffMode::Split
+                        } else {
+                            DiffMode::Unified
+                        },
+                        cx,
+                    )
+                });
+            },
+        );
+    }
+    fn toggle_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let split = self.preferences.diff_layout != "split";
+        self.preferences.diff_layout = if split { "split" } else { "unified" }.into();
+        self.diff.update(cx, |s, cx| {
+            s.set_mode(
+                if split {
+                    DiffMode::Split
+                } else {
+                    DiffMode::Unified
+                },
+                cx,
+            )
+        });
+        let core = self.core.clone();
+        let layout = self.preferences.diff_layout.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.store.update(|d| {
+                    d.preferences.diff_layout = layout;
+                    Ok(())
+                })
+            },
+            window,
+            cx,
+            |_, (), _, _| {},
+        );
+    }
+    fn navigate(&mut self, operation: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_navigation();
+        self.error = None;
+        let (Some(snapshot), Some(anchor)) = (&self.snapshot, &self.anchor) else {
+            self.error = Some("Select a source line first".into());
+            return;
+        };
+        let column = self.column.read(cx).value().parse::<u32>().unwrap_or(0);
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let generation = self.file_epoch;
+        let request_id = format!(
+            "native-{epoch}-{generation}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let request = NavigationRequest {
+            request_id: request_id.clone(),
+            snapshot_id: snapshot.id.clone(),
+            side: self
+                .navigation_file
+                .as_ref()
+                .map(|f| f.side.clone())
+                .unwrap_or_else(|| side(anchor.side()).into()),
+            path: Some(anchor.path().to_string()),
+            document_id: self.navigation_file.as_ref().map(|f| f.document_id.clone()),
+            position: Position {
+                line: anchor.line() as u32 - 1,
+                character: column,
+            },
+            operation: operation.into(),
+        };
+        self.navigation_request = Some(request_id.clone());
+        self.notice = "Resolving symbol…".into();
+        let core = self.core.clone();
+        self.task(
+            async move {
+                core.navigate_symbol(request)
+                    .await
+                    .map_err(|e| format!("{}: {}", e.code, e.message))
+            },
+            window,
+            cx,
+            move |this, result, _, _| {
+                if this.epoch.load(Ordering::SeqCst) == epoch
+                    && this.file_epoch == generation
+                    && this.navigation_request.as_ref() == Some(&request_id)
+                {
+                    this.navigation_request = None;
+                    this.notice = format!("{} results", result.locations.len());
+                    this.navigation = Some(result);
+                }
+            },
+        );
+    }
+    fn open_location(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember(cx);
+        let (Some(snapshot), Some(result)) = (&self.snapshot, &self.navigation) else {
+            return;
+        };
+        let Some(location) = result.locations.get(index) else {
+            return;
+        };
+        let id = snapshot.id.clone();
+        let side = result.side.clone();
+        let document = location.document_id.clone();
+        let line = location.range.start.line as usize + 1;
+        let core = self.core.clone();
+        self.navigation_history.push((
+            self.diff.read(cx).files().to_vec(),
+            self.navigation_file.clone(),
+            self.diff.read(cx).viewport_anchor(),
+            self.anchor.clone(),
+            self.diff.read(cx).horizontal_offset(),
+        ));
+        if self.navigation_history.len() > 100 {
+            self.navigation_history.remove(0);
+        }
+        self.file_epoch += 1;
+        let generation = self.file_epoch;
+        self.loading = true;
+        self.diff.update(cx, |s, cx| s.set_files([], cx));
+        self.task(
+            async move {
+                core.read_navigation_file(&id, &side, &document, false)
+                    .await
+                    .map_err(|e| e.message)
+            },
+            window,
+            cx,
+            move |this, file, _, cx| {
+                if this.file_epoch != generation {
+                    return;
+                }
+                this.loading = false;
+                if let Some(content) = &file.content {
+                    let position =
+                        DiffLinePosition::new(file.path.clone(), DiffSide::Modified, line);
+                    this.diff.update(cx, |s, cx| {
+                        s.set_files(
+                            [
+                                DiffFile::unchanged(file.path.clone(), content)
+                                    .with_display_options(
+                                        file.tab_width.unwrap_or(this.preferences.tab_width)
+                                            as usize,
+                                        this.preferences.show_whitespace,
+                                    ),
+                            ],
+                            cx,
+                        );
+                        s.scroll_to_line(position.clone(), cx);
+                    });
+                    this.anchor = Some(position);
+                }
+                this.hits.clear();
+                this.notice = file.label.clone();
+                this.navigation_file = Some(file);
+            },
+        );
+    }
+    fn load_navigation_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self.navigation_file.clone() else {
+            return;
+        };
+        let core = self.core.clone();
+        let generation = self.file_epoch;
+        self.task(
+            async move {
+                core.read_navigation_file(&file.snapshot_id, &file.side, &file.document_id, true)
+                    .await
+                    .map_err(|e| e.message)
+            },
+            window,
+            cx,
+            move |this, file, _, cx| {
+                if this.file_epoch != generation {
+                    return;
+                }
+                if let Some(text) = &file.content {
+                    this.diff.update(cx, |s, cx| {
+                        s.set_files(
+                            [
+                                DiffFile::unchanged(file.path.clone(), text).with_display_options(
+                                    file.tab_width.unwrap_or(4) as usize,
+                                    this.preferences.show_whitespace,
+                                ),
+                            ],
+                            cx,
+                        )
+                    });
+                }
+                this.navigation_file = Some(file);
+            },
+        );
+    }
+    fn activate_loaded(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.content.as_ref().is_some_and(|c| c.path == path) {
+            return;
+        }
+        let Some(content) = self.loaded_files.get(path).cloned() else {
+            return;
+        };
+        self.remember(cx);
+        self.cancel_navigation();
+        self.file_epoch += 1;
+        self.content = Some(content);
+        self.anchor = None;
+        self.editing = None;
+        let body = self
+            .draft_key()
+            .and_then(|key| self.saved_views.get(&key))
+            .map(|v| v.body.clone())
+            .unwrap_or_default();
+        self.comment
+            .update(cx, |s, cx| s.set_value(body, window, cx));
+        cx.notify();
+    }
+    fn load_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.snapshot.clone() else {
+            return;
+        };
+        self.remember(cx);
+        self.cancel_navigation();
+        self.file_epoch += 1;
+        let generation = self.file_epoch;
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let core = self.core.clone();
+        let whitespace = self.preferences.show_whitespace;
+        self.loading = true;
+        self.task(async move {
+            let mut loaded=BTreeMap::new();let mut parsed=Vec::new();let mut bytes=0usize;let mut skipped=0;
+            for entry in snapshot.files {
+                if entry.deferred {skipped+=1;continue;}
+                let content=core.read_file(&snapshot.id,&entry.id,false).await?;
+                bytes+=content.old_content.as_ref().map_or(0,String::len)+content.new_content.as_ref().map_or(0,String::len);
+                if bytes>32*1024*1024 {skipped+=1;continue;}
+                let code=snapshot.comparison.view=="code";
+                let (content,models)=tokio::task::spawn_blocking(move ||{let models=files(&content,code)?.into_iter().map(|f|f.with_display_options(content.tab_width as usize,whitespace)).collect::<Vec<_>>();Ok::<_,String>((content,models))}).await.map_err(|e|e.to_string())??;
+                parsed.extend(models);loaded.insert(content.path.clone(),Arc::new(content));
+            }
+            Ok((loaded,parsed,skipped))
+        },window,cx,move |this,(loaded,parsed,skipped),window,cx|{
+            if this.epoch.load(Ordering::SeqCst)!=epoch||this.file_epoch!=generation{return;}
+            this.loading=false;this.all_files=true;this.loaded_files=loaded;this.diff.update(cx,|s,cx|s.set_files(parsed,cx));
+            if !this.content.as_ref().is_some_and(|f|this.loaded_files.contains_key(&f.path)){if let Some(path)=this.loaded_files.keys().next().cloned(){this.activate_loaded(&path,window,cx);}}
+            this.notice=format!("{} files loaded; {} deferred or outside the 32 MiB source budget. Select skipped files individually.",this.loaded_files.len(),skipped);
+        });
+    }
+    fn remove_repository(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember(cx);
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        let removed = path.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.store.update(|d| {
+                    d.preferences.recent_repositories.retain(|p| p != &path);
+                    if d.preferences.last_repository.as_ref() == Some(&path) {
+                        d.preferences.last_repository = None;
+                    }
+                    Ok(())
+                })?;
+                Ok(core.store.read()?.preferences)
+            },
+            window,
+            cx,
+            move |this, preferences, _, cx| {
+                this.preferences = preferences;
+                if this
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.repository.root == removed)
+                {
+                    this.epoch.fetch_add(1, Ordering::SeqCst);
+                    this.cancel_navigation();
+                    this.snapshot = None;
+                    this.content = None;
+                    this.queue = ReviewQueue::default();
+                    this.diff.update(cx, |s, cx| s.set_files([], cx));
+                }
+            },
+        );
+    }
+    fn relocate_repository(
+        &mut self,
+        previous: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remember(cx);
+        let path = self.path.read(cx).value().to_string();
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.relocate_repository(&previous, &path)
+                    .await
+                    .map(|s| s.repository.root)
+            },
+            window,
+            cx,
+            |this, path, window, cx| this.open(path, None, window, cx),
+        );
+    }
+    fn import_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Import self-contained VS Code theme".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await {
+                if let Some(path) = paths.first() {
+                    let path = path.to_string_lossy().into_owned();
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        let core = this.core.clone();
+                        this.task(
+                            async move { core.import_theme(&path) },
+                            window,
+                            cx,
+                            |this, theme, _, _| {
+                                this.themes.retain(|t| t.id != theme.id);
+                                this.themes.push(theme);
+                                this.notice = "Theme imported; choose it below".into();
+                            },
+                        );
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+    fn choose_theme(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(theme) = self.themes.iter().find(|t| t.id == id) else {
+            return;
+        };
+        let mut appearance = self.preferences.appearance.clone();
+        appearance.mode = theme.kind.clone();
+        if theme.kind == "dark" {
+            appearance.dark_theme = id;
+        } else {
+            appearance.light_theme = id;
+        }
+        let core = self.core.clone();
+        let gate = self.gate.clone();
+        self.task(
+            async move {
+                let _guard = gate.lock().await;
+                core.store.update(|d| {
+                    d.preferences.appearance = appearance.clone();
+                    Ok(())
+                })?;
+                Ok(appearance)
+            },
+            window,
+            cx,
+            |this, appearance, window, cx| {
+                this.preferences.appearance = appearance;
+                this.apply_theme(window, cx);
+                this.show_settings(window, cx);
+            },
+        );
+    }
+    fn remove_theme(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let core = self.core.clone();
+        self.task(
+            async move {
+                core.remove_theme(&id)?;
+                Ok((id, core.store.read()?.preferences))
+            },
+            window,
+            cx,
+            |this, (id, preferences), window, cx| {
+                this.themes.retain(|t| t.id != id);
+                this.preferences = preferences;
+                this.apply_theme(window, cx);
+                this.show_settings(window, cx);
+            },
+        );
+    }
+}
+
+impl Render for Workspace {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let filter = self.filter.read(cx).value().to_lowercase();
+        let entries: Vec<_> = self
+            .snapshot
+            .as_ref()
+            .map(|s| {
+                s.files
+                    .iter()
+                    .filter(|f| f.path.to_lowercase().contains(&filter))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let selected = self.content.as_ref().map(|c| c.file_id.clone());
+        let quick_selected = if self.filter.read(cx).focus_handle(cx).is_focused(window) {
+            entries.get(self.quick_index).map(|f| f.id.clone())
+        } else {
+            None
+        };
+        let queue = self.queue.clone();
+        let mut rows: Vec<(String, Option<FileEntry>)> = Vec::new();
+        let mut seen = BTreeSet::new();
+        let filtering = !filter.is_empty() || quick_selected.is_some();
+        for file in entries {
+            let parts: Vec<_> = file.path.split('/').collect();
+            let mut parent = String::new();
+            let mut hidden = false;
+            for part in parts.iter().take(parts.len().saturating_sub(1)) {
+                if !parent.is_empty() {
+                    parent.push('/');
+                }
+                parent.push_str(part);
+                if seen.insert(parent.clone()) {
+                    rows.push((parent.clone(), None));
+                }
+                if !filtering && self.collapsed.contains(&parent) {
+                    hidden = true;
+                    break;
+                }
+            }
+            if !hidden {
+                rows.push((file.path.clone(), Some(file)));
+            }
+        }
+        let weak = cx.entity().downgrade();
+        let collapsed = self.collapsed.clone();
+        if self.quick_scroll_pending {
+            if let Some(index) = rows.iter().position(|(_, f)| {
+                f.as_ref()
+                    .is_some_and(|f| Some(&f.id) == quick_selected.as_ref())
+            }) {
+                self.tree_scroll
+                    .scroll_to_item(index, ScrollStrategy::Nearest);
+            }
+            self.quick_scroll_pending = false;
+        }
+        let tree = uniform_list("file-tree", rows.len(), move |range, _, _| {
+            range
+                .map(|ix| {
+                    let (path, file) = &rows[ix];
+                    let path = path.clone();
+                    let weak = weak.clone();
+                    let depth = path.matches('/').count();
+                    if let Some(file) = file {
+                        let id = file.id.clone();
+                        let checked = queue.reviewed.contains_key(&file.path);
+                        Button::new(SharedString::from(format!("file-{}", file.id)))
+                            .ghost()
+                            .w_full()
+                            .label(format!(
+                                "{}{} {} {}",
+                                "  ".repeat(depth),
+                                if checked { "✓" } else { "" },
+                                file.status,
+                                path.rsplit('/').next().unwrap_or(&path)
+                            ))
+                            .selected(
+                                quick_selected.as_ref().or(selected.as_ref()) == Some(&file.id),
+                            )
+                            .on_click(move |_, window, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.select(id.clone(), false, window, cx)
+                                });
+                            })
+                            .into_any_element()
+                    } else {
+                        Button::new(SharedString::from(format!("folder-{path}")))
+                            .ghost()
+                            .w_full()
+                            .label(format!(
+                                "{}{} {}",
+                                "  ".repeat(depth),
+                                if collapsed.contains(&path) {
+                                    "▸"
+                                } else {
+                                    "▾"
+                                },
+                                path.rsplit('/').next().unwrap_or(&path)
+                            ))
+                            .on_click(move |_, _, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    if !this.collapsed.remove(&path) {
+                                        this.collapsed.insert(path.clone());
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                            .into_any_element()
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .track_scroll(&self.tree_scroll)
+        .flex_1()
+        .min_h_0();
+        let queue = self.queue.clone();
+        let mut feedback = v_flex().gap_2().p_2();
+        for comment in queue.comments {
+            let delete = comment.id.clone();
+            let edit = comment.clone();
+            let position = comment
+                .anchor
+                .line
+                .map(|line| {
+                    format!(
+                        " {}:{}",
+                        comment.anchor.side.as_deref().unwrap_or("new"),
+                        line
+                    )
+                })
+                .unwrap_or_default();
+            feedback = feedback.child(
+                v_flex()
+                    .gap_1()
+                    .p_2()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .child(format!(
+                        "{}{}{}",
+                        comment.path,
+                        position,
+                        if comment.outdated { " · OUTDATED" } else { "" }
+                    ))
+                    .child(comment.body)
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(
+                                Button::new(SharedString::from(format!("edit-{}", edit.id)))
+                                    .small()
+                                    .label("Edit")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.editing = Some(edit.id.clone());
+                                        this.comment.update(cx, |s, cx| {
+                                            s.set_value(edit.body.clone(), window, cx)
+                                        });
+                                        this.comment.update(cx, |s, cx| s.focus(window, cx));
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("delete-{delete}")))
+                                    .small()
+                                    .label("Delete")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.delete_comment(delete.clone(), window, cx)
+                                    })),
+                            ),
+                    ),
+            );
+        }
+        let scope = if let Some(anchor) = &self.anchor {
+            format!("Comment on {} line {}", side(anchor.side()), anchor.line())
+        } else {
+            "File comment".into()
+        };
+        let mut annotations = Vec::new();
+        let bodies: BTreeMap<_, _> = self
+            .queue
+            .comments
+            .iter()
+            .filter(|c| !c.outdated)
+            .map(|c| (c.id.clone(), c.body.clone()))
+            .collect();
+        if self.navigation_file.is_none() {
+            for comment in &self.queue.comments {
+                if !comment.outdated {
+                    if let Some(line) = comment.anchor.line {
+                        annotations.push(DiffAnnotation::line(
+                            SharedString::from(comment.id.clone()),
+                            DiffLinePosition::new(
+                                comment.path.clone(),
+                                diff_side(comment.anchor.side.as_deref().unwrap_or("new")),
+                                line as usize,
+                            ),
+                        ));
+                    } else {
+                        annotations.push(DiffAnnotation::file(
+                            SharedString::from(comment.id.clone()),
+                            comment.path.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+        let weak = cx.entity().downgrade();
+        let click_weak = weak.clone();
+        let search_ranges = self
+            .content
+            .as_ref()
+            .map(|f| {
+                self.hits
+                    .iter()
+                    .map(|h| {
+                        (
+                            DiffLinePosition::new(
+                                self.navigation_file
+                                    .as_ref()
+                                    .map(|n| n.path.clone())
+                                    .unwrap_or_else(|| f.path.clone()),
+                                diff_side(h.side),
+                                h.line as usize,
+                            ),
+                            h.byte..h.end_byte,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let viewer = Diff::new(&self.diff)
+            .size_full()
+            .annotations(annotations)
+            .search_highlights(search_ranges)
+            .render_annotation(move |annotation, _, _| {
+                let body = bodies
+                    .iter()
+                    .find(|(id, _)| {
+                        annotation.id() == &ElementId::Name(SharedString::from((*id).clone()))
+                    })
+                    .map(|(_, body)| body.clone())
+                    .unwrap_or_default();
+                div().p_2().child(body)
+            })
+            .on_add_annotation(move |range, window, cx| {
+                let _ = weak.update(cx, |this, cx| {
+                    if this.navigation_file.is_some() {
+                        return;
+                    }
+                    this.activate_loaded(range.path(), window, cx);
+                    this.anchor = Some(DiffLinePosition::new(
+                        range.path().clone(),
+                        range.side(),
+                        range.start(),
+                    ));
+                    this.editing = None;
+                    this.comment.update(cx, |s, cx| s.focus(window, cx));
+                    cx.notify();
+                });
+            })
+            .on_line_click(move |position, event, window, cx| {
+                let _ = click_weak.update(cx, |this, cx| {
+                    this.activate_loaded(position.path(), window, cx);
+                    this.anchor = Some(position.clone());
+                    if let ClickEvent::Mouse(mouse) = event {
+                        if let Some((position, byte)) =
+                            this.diff.read(cx).position_at(mouse.up.position)
+                        {
+                            let source = if let Some(file) = &this.navigation_file {
+                                file.content.as_deref()
+                            } else {
+                                this.content.as_ref().and_then(|f| {
+                                    if position.side() == DiffSide::Original {
+                                        f.old_content.as_deref()
+                                    } else {
+                                        f.new_content.as_deref()
+                                    }
+                                })
+                            };
+                            if let Some(line) = source
+                                .and_then(|s| s.split_inclusive('\n').nth(position.line() - 1))
+                            {
+                                if let Ok(column) = presentation::utf16_column(line, byte) {
+                                    this.column.update(cx, |s, cx| {
+                                        s.set_value(column.to_string(), window, cx)
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            });
+        let mut center = v_flex().flex_1().min_w_0().min_h_0();
+        if self.settings_visible {
+            let mut themes = h_flex().gap_1().flex_wrap();
+            for theme in self.themes.clone() {
+                let id = theme.id.clone();
+                let remove = theme.id.clone();
+                themes = themes.child(
+                    Button::new(SharedString::from(format!("theme-{id}")))
+                        .small()
+                        .label(theme.name)
+                        .on_click(
+                            cx.listener(move |this, _, w, c| this.choose_theme(id.clone(), w, c)),
+                        ),
+                );
+                if !crate::themes::builtins().iter().any(|t| t.id == theme.id) {
+                    themes = themes.child(
+                        Button::new(SharedString::from(format!("remove-theme-{remove}")))
+                            .small()
+                            .label("Remove")
+                            .on_click(cx.listener(move |this, _, w, c| {
+                                this.remove_theme(remove.clone(), w, c)
+                            })),
+                    );
+                }
+            }
+            center = center
+                .child(themes)
+                .child(
+                    Button::new("import-theme")
+                        .label("Import theme…")
+                        .on_click(cx.listener(|this, _, w, c| this.import_theme(w, c))),
+                )
+                .child(
+                    div()
+                        .p_2()
+                        .child("Preferences and language servers (validated JSON)"),
+                )
+                .child(Textarea::new(&self.settings).h(px(500.)))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("save-settings")
+                                .primary()
+                                .label("Save settings")
+                                .on_click(cx.listener(|this, _, w, c| this.save_settings(w, c))),
+                        )
+                        .child(
+                            Button::new("close-settings")
+                                .label("Close")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.settings_visible = false;
+                                    cx.notify();
+                                })),
+                        ),
+                );
+        } else {
+            center =
+                center.child(
+                    h_flex()
+                        .gap_1()
+                        .p_2()
+                        .child(Input::new(&self.search).w(px(240.)))
+                        .child(
+                            Button::new("find-prev")
+                                .small()
+                                .label("Previous")
+                                .on_click(cx.listener(|this, _, w, cx| this.find(-1, w, cx))),
+                        )
+                        .child(
+                            Button::new("find-next")
+                                .small()
+                                .label("Find / Next")
+                                .on_click(cx.listener(|this, _, w, cx| this.find(1, w, cx))),
+                        )
+                        .child(Input::new(&self.line).w(px(70.)))
+                        .child(
+                            Button::new("jump")
+                                .small()
+                                .label("Go")
+                                .on_click(cx.listener(|this, _, _, cx| this.jump(cx))),
+                        )
+                        .child(
+                            Button::new("layout")
+                                .small()
+                                .label(self.preferences.diff_layout.clone())
+                                .on_click(cx.listener(|this, _, w, c| this.toggle_layout(w, c))),
+                        )
+                        .child(
+                            Button::new("expand")
+                                .small()
+                                .label("Expand")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.diff.update(cx, |s, cx| s.expand_unchanged(cx))
+                                })),
+                        )
+                        .child(Button::new("collapse").small().label("Fold").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.diff.update(cx, |s, cx| s.collapse_unchanged(cx))
+                            }),
+                        )),
+                );
+            if let Some(content) = &self.content {
+                if content.deferred {
+                    let id = content.file_id.clone();
+                    center = center
+                        .child(div().p_4().child(format!(
+                            "{} bytes — explicit loading required",
+                            content.size
+                        )))
+                        .child(Button::new("load-large").label("Load large file").on_click(
+                            cx.listener(move |this, _, w, c| this.select(id.clone(), true, w, c)),
+                        ));
+                } else if content.kind != "text" {
+                    center = center.child(
+                        div()
+                            .p_4()
+                            .child(format!("{}: {}", content.kind, content.metadata)),
+                    );
+                }
+            }
+            if self.navigation_file.as_ref().is_some_and(|f| f.deferred) {
+                center = center.child(
+                    Button::new("load-navigation")
+                        .label("Load large navigation source")
+                        .on_click(cx.listener(|this, _, w, c| this.load_navigation_source(w, c))),
+                );
+            }
+            center = center.child(div().flex_1().min_h_0().child(viewer));
+            center = center.child(
+                h_flex()
+                    .p_2()
+                    .gap_2()
+                    .child(Input::new(&self.column).w(px(200.)))
+                    .child(
+                        Button::new("definition")
+                            .small()
+                            .label("Definition F12")
+                            .on_click(cx.listener(|this, _, w, c| this.navigate("auto", w, c))),
+                    )
+                    .child(
+                        Button::new("references")
+                            .small()
+                            .label("References ⇧F12")
+                            .on_click(
+                                cx.listener(|this, _, w, c| this.navigate("references", w, c)),
+                            ),
+                    )
+                    .child(
+                        Button::new("cancel-navigation")
+                            .small()
+                            .label("Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cancel_navigation();
+                                cx.notify();
+                            })),
+                    ),
+            );
+            if let Some(result) = &self.navigation {
+                let mut results = v_flex().gap_1();
+                for (index, location) in result.locations.iter().enumerate() {
+                    results = results.child(
+                        Button::new(("location", index))
+                            .ghost()
+                            .label(format!(
+                                "{}:{} {} — {}",
+                                location.path,
+                                location.range.start.line + 1,
+                                location.label,
+                                location.preview
+                            ))
+                            .on_click(
+                                cx.listener(move |this, _, w, c| this.open_location(index, w, c)),
+                            ),
+                    );
+                }
+                center = center.child(
+                    div()
+                        .id("locations")
+                        .max_h(px(180.))
+                        .overflow_y_scroll()
+                        .child(results),
+                );
+            }
+        }
+        let mut sidebar = v_flex()
+            .size_full()
+            .border_r_1()
+            .border_color(cx.theme().border)
+            .min_h_0()
+            .child(
+                div()
+                    .id("quick-open")
+                    .key_context("PeerQuickOpen")
+                    .p_2()
+                    .child(Input::new(&self.filter)),
+            )
+            .child(tree);
+        if self.history_visible {
+            let mut commits = v_flex().gap_1();
+            for commit in self.commits.clone() {
+                commits = commits.child(
+                    Button::new(SharedString::from(commit.id.clone()))
+                        .ghost()
+                        .label(format!("{} {}", commit.short_id, commit.subject))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.reference
+                                .update(cx, |s, cx| s.set_value(commit.id.clone(), window, cx));
+                            this.compare("commit", window, cx);
+                        })),
+                );
+            }
+            sidebar = sidebar
+                .child(
+                    div()
+                        .id("commits")
+                        .h(px(240.))
+                        .overflow_y_scroll()
+                        .child(commits),
+                )
+                .child(
+                    Button::new("more")
+                        .label("Load older commits")
+                        .disabled(!self.more_commits)
+                        .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
+                );
+        }
+        let mut root = v_flex()
+            .id("peer")
+            .key_context("Peer")
+            .track_focus(&self.focus)
+            .size_full()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .text_sm()
+            .on_action(cx.listener(|this, _: &NextFile, _, cx| {
+                let filter = this.filter.read(cx).value().to_lowercase();
+                let count = this
+                    .snapshot
+                    .as_ref()
+                    .map(|s| {
+                        s.files
+                            .iter()
+                            .filter(|f| f.path.to_lowercase().contains(&filter))
+                            .count()
+                    })
+                    .unwrap_or(0);
+                if count > 0 {
+                    this.quick_index = (this.quick_index + 1) % count;
+                    this.quick_scroll_pending = true;
+                    this.notice =
+                        format!("Quick open result {} of {}", this.quick_index + 1, count);
+                }
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &PreviousFile, _, cx| {
+                this.quick_index = this.quick_index.saturating_sub(1);
+                this.quick_scroll_pending = true;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &Open, w, c| this.choose_folder(w, c)))
+            .on_action(cx.listener(|this, _: &Refresh, w, c| this.refresh(w, c)))
+            .on_action(
+                cx.listener(|this, _: &QuickOpen, w, c| {
+                    this.filter.update(c, |s, c| s.focus(w, c))
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &Find, w, c| this.search.update(c, |s, c| s.focus(w, c))),
+            )
+            .on_action(
+                cx.listener(|this, _: &GoLine, w, c| this.line.update(c, |s, c| s.focus(w, c))),
+            )
+            .on_action(cx.listener(|this, _: &Back, w, c| this.back(w, c)))
+            .on_action(cx.listener(|this, _: &Settings, w, c| this.show_settings(w, c)))
+            .on_action(cx.listener(|this, _: &Definition, w, c| this.navigate("auto", w, c)))
+            .on_action(cx.listener(|this, _: &References, w, c| this.navigate("references", w, c)))
+            .on_action(cx.listener(|this, _: &Cancel, _, c| {
+                this.cancel_navigation();
+                this.settings_visible = false;
+                this.recent_visible = false;
+                c.notify();
+            }))
+            .child(
+                h_flex()
+                    .p_2()
+                    .gap_2()
+                    .child(div().font_bold().child("PEER"))
+                    .child(Input::new(&self.path).flex_1())
+                    .child(Button::new("open-path").label("Open").on_click(cx.listener(
+                        |this, _, w, c| {
+                            this.open(this.path.read(c).value().to_string(), None, w, c)
+                        },
+                    )))
+                    .child(
+                        Button::new("browse")
+                            .label("Browse…")
+                            .on_click(cx.listener(|this, _, w, c| this.choose_folder(w, c))),
+                    )
+                    .child(Button::new("recent").label("Recent").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.recent_visible = !this.recent_visible;
+                            cx.notify();
+                        },
+                    )))
+                    .child(
+                        Button::new("refresh")
+                            .label("Refresh")
+                            .on_click(cx.listener(|this, _, w, c| this.refresh(w, c))),
+                    )
+                    .child(
+                        Button::new("back")
+                            .label("Back")
+                            .on_click(cx.listener(|this, _, w, c| this.back(w, c))),
+                    )
+                    .child(
+                        Button::new("settings")
+                            .label("Settings")
+                            .on_click(cx.listener(|this, _, w, c| this.show_settings(w, c))),
+                    ),
+            );
+        if self.recent_visible {
+            let mut recent = v_flex().gap_1();
+            for (index, path) in self
+                .preferences
+                .recent_repositories
+                .clone()
+                .into_iter()
+                .enumerate()
+            {
+                let open = path.clone();
+                let relocate = path.clone();
+                let remove = path.clone();
+                recent = recent.child(
+                    h_flex()
+                        .gap_2()
+                        .child(Button::new(("recent", index)).small().label(path).on_click(
+                            cx.listener(move |this, _, w, c| {
+                                this.recent_visible = false;
+                                this.open(open.clone(), None, w, c);
+                            }),
+                        ))
+                        .child(
+                            Button::new(("relocate", index))
+                                .small()
+                                .label("Move to path above")
+                                .on_click(cx.listener(move |this, _, w, c| {
+                                    this.relocate_repository(relocate.clone(), w, c)
+                                })),
+                        )
+                        .child(
+                            Button::new(("remove-repository", index))
+                                .small()
+                                .label("Remove from list")
+                                .on_click(cx.listener(move |this, _, w, c| {
+                                    this.remove_repository(remove.clone(), w, c)
+                                })),
+                        ),
+                );
+            }
+            root = root.child(
+                div()
+                    .id("recent-repositories")
+                    .max_h(px(240.))
+                    .overflow_y_scroll()
+                    .child(recent),
+            );
+        }
+        let mut comparisons = h_flex().p_2().gap_1();
+        for (mode, label) in [
+            ("code", "Code"),
+            ("all", "All changes"),
+            ("staged", "Staged"),
+            ("unstaged", "Unstaged"),
+        ] {
+            comparisons = comparisons.child(
+                Button::new(mode)
+                    .small()
+                    .label(label)
+                    .on_click(cx.listener(move |this, _, w, c| this.compare(mode, w, c))),
+            );
+        }
+        root = root.child(
+            comparisons
+                .child(Input::new(&self.reference).w(px(180.)))
+                .child(
+                    Button::new("branch")
+                        .small()
+                        .label("Compare branch")
+                        .on_click(cx.listener(|this, _, w, c| this.compare("branch", w, c))),
+                )
+                .child(
+                    Button::new("commit")
+                        .small()
+                        .label("Compare commit")
+                        .on_click(cx.listener(|this, _, w, c| this.compare("commit", w, c))),
+                )
+                .child(
+                    Button::new("all-files")
+                        .small()
+                        .label("All files")
+                        .on_click(cx.listener(|this, _, w, c| this.load_all(w, c))),
+                )
+                .child(
+                    Button::new("history")
+                        .small()
+                        .label("Commit history")
+                        .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
+                ),
+        );
+        if let Some(error) = &self.error {
+            root = root.child(
+                div()
+                    .p_2()
+                    .bg(rgb(0x702b36))
+                    .text_color(rgb(0xffffff))
+                    .child(error.clone()),
+            );
+        }
+        let feedback_panel =
+            v_flex()
+                .size_full()
+                .min_h_0()
+                .border_l_1()
+                .border_color(cx.theme().border)
+                .child(
+                    h_flex()
+                        .p_2()
+                        .gap_1()
+                        .child(
+                            Button::new("reviewed")
+                                .small()
+                                .label("Toggle Reviewed")
+                                .disabled(
+                                    self.loading
+                                        || self.content.is_none()
+                                        || self.navigation_file.is_some(),
+                                )
+                                .on_click(cx.listener(|this, _, w, c| this.reviewed(w, c))),
+                        )
+                        .child(
+                            Button::new("copy-export")
+                                .small()
+                                .label("Copy")
+                                .on_click(cx.listener(|this, _, w, c| this.export(false, w, c))),
+                        )
+                        .child(
+                            Button::new("save-export")
+                                .small()
+                                .label("Export")
+                                .on_click(cx.listener(|this, _, w, c| this.export(true, w, c))),
+                        ),
+                )
+                .child(div().p_2().child(scope))
+                .child(Textarea::new(&self.comment).h(px(110.)))
+                .child(
+                    h_flex()
+                        .p_2()
+                        .gap_1()
+                        .child(
+                            Button::new("save-comment")
+                                .primary()
+                                .label("Save comment")
+                                .disabled(
+                                    self.loading
+                                        || self.feedback_pending
+                                        || self.content.is_none()
+                                        || self.navigation_file.is_some(),
+                                )
+                                .on_click(cx.listener(|this, _, w, c| this.save_comment(w, c))),
+                        )
+                        .child(Button::new("file-comment").label("File scope").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.anchor = None;
+                                this.editing = None;
+                                cx.notify();
+                            }),
+                        )),
+                )
+                .child(
+                    div()
+                        .id("feedback")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .child(feedback),
+                );
+        root = root
+            .child(
+                div().flex_1().min_h_0().child(
+                    h_resizable("workspace-panels")
+                        .child(
+                            resizable_panel()
+                                .size(px(self.preferences.sidebar_widths.files as f32))
+                                .size_range(px(180.)..px(600.))
+                                .child(sidebar),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size_range(px(400.)..px(4000.))
+                                .child(center.size_full()),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size(px(self.preferences.sidebar_widths.feedback as f32))
+                                .size_range(px(260.)..px(640.))
+                                .child(feedback_panel),
+                        )
+                        .on_resize(cx.listener(
+                            |this, state: &Entity<ResizableState>, window, cx| {
+                                let sizes = state.read(cx).sizes();
+                                if sizes.len() != 3 {
+                                    return;
+                                }
+                                let widths = SidebarWidths {
+                                    files: (f32::from(sizes[0]) as u32).clamp(180, 600),
+                                    feedback: (f32::from(sizes[2]) as u32).clamp(260, 640),
+                                };
+                                this.preferences.sidebar_widths = widths.clone();
+                                let core = this.core.clone();
+                                let gate = this.gate.clone();
+                                this.task(
+                                    async move {
+                                        let _guard = gate.lock().await;
+                                        core.store.update(|d| {
+                                            d.preferences.sidebar_widths = widths;
+                                            Ok(())
+                                        })
+                                    },
+                                    window,
+                                    cx,
+                                    |_, (), _, _| {},
+                                );
+                            },
+                        )),
+                ),
+            )
+            .child(
+                div()
+                    .p_2()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .child(if self.loading {
+                        "Loading…".into()
+                    } else {
+                        self.notice.clone()
+                    }),
+            );
+        let _ = (window, &self.subscriptions);
+        root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{files, DiffFile, FileContent};
+    fn content(old: Option<&str>, new: Option<&str>) -> FileContent {
+        FileContent {
+            snapshot_id: "snapshot".into(),
+            file_id: "file".into(),
+            path: "目录/odd\tname.rs".into(),
+            old_path: None,
+            status: "modified".into(),
+            kind: "text".into(),
+            old_content: old.map(str::to_owned),
+            new_content: new.map(str::to_owned),
+            fingerprint: "fingerprint".into(),
+            tab_width: 8,
+            deferred: false,
+            size: 0,
+            metadata: String::new(),
+        }
+    }
+    #[test]
+    fn native_parser_accepts_real_old_new_source_and_quoted_paths() {
+        let c = content(Some("same\r\n\t旧😀\r\n"), Some("same\r\n\t新😀\r\nlast"));
+        let models = files(&c, false).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].path().as_str(), c.path);
+        assert_eq!(models[0].additions(), 2);
+        assert_eq!(models[0].deletions(), 1);
+    }
+    #[test]
+    fn additions_deletions_and_renames_keep_absent_sides() {
+        let added = files(&content(None, Some("new\n")), false).unwrap();
+        assert!(added[0].original_path().is_none());
+        let deleted = files(&content(Some("old\n"), None), false).unwrap();
+        assert!(deleted[0].modified_path().is_none());
+        let mut renamed = content(Some("old\n"), Some("new\n"));
+        renamed.old_path = Some("previous.rs".into());
+        let models = files(&renamed, false).unwrap();
+        assert_eq!(models[0].original_path().unwrap().as_str(), "previous.rs");
+        assert_eq!(models[0].path().as_str(), renamed.path);
+    }
+    #[test]
+    fn deferred_binary_and_empty_sources_do_not_invent_lines() {
+        let mut c = content(None, Some(""));
+        assert_eq!(files(&c, false).unwrap()[0].additions(), 0);
+        c.deferred = true;
+        assert!(files(&c, false).unwrap().is_empty());
+        c.deferred = false;
+        c.kind = "binary".into();
+        assert!(files(&c, false).unwrap().is_empty());
+    }
+    #[test]
+    fn multi_file_large_change_uses_actual_parser() {
+        let mut all = Vec::new();
+        for index in 0..100 {
+            let old = (0..100).map(|n| format!("old {n}\n")).collect::<String>();
+            let new = old.replace("old", "new");
+            let mut c = content(Some(&old), Some(&new));
+            c.path = format!("src/file{index}.rs");
+            all.extend(files(&c, false).unwrap());
+        }
+        assert_eq!(all.len(), 100);
+        assert_eq!(all.iter().map(DiffFile::additions).sum::<usize>(), 10_000);
+        assert_eq!(all.iter().map(DiffFile::deletions).sum::<usize>(), 10_000);
+    }
+}

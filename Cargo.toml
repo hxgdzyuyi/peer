@@ -1,11 +1,12 @@
 [workspace]
-members = ["crates/repo-core", "src-tauri"]
+members = ["crates/repo-core", "crates/peer-native"]
 resolver = "2"
+exclude = ["vendor/gpui-component"]
 
 [workspace.package]
 version = "0.1.2"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "Apache-2.0"
 
 [profile.dev]
@@ -20,3 +21,6 @@ incremental = false
 strip = true
 lto = "thin"
 codegen-units = 16
+
+[patch."https://github.com/longbridge/gpui-kit"]
+gpui-component = { path = "vendor/gpui-component" }

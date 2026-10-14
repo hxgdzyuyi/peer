@@ -1,0 +1,6 @@
+tauri-winrt-notification v0.8.1
+└── notify-rust v4.18.2
+    └── gpui-pre-linux v0.3.9
+        └── gpui-pre-platform v0.3.9
+            └── gpui-kit v0.7.3 (https://github.com/longbridge/gpui-kit?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36)
+                └── peer v0.1.2 (/workspace/peer/crates/peer-native)

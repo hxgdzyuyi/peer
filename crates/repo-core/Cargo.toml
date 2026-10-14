@@ -19,5 +19,8 @@ json5 = "0.4"
 globset = "0.4"
 parking_lot = "0.12"
 
+similar = "2.7"
+regex = "1"
+
 [dev-dependencies]
 tempfile = "3"

@@ -990,3 +990,34 @@ async fn submodule_updates_and_deletions_have_file_comment_summaries() {
         "submodule"
     );
 }
+
+#[test]
+fn native_view_extension_survives_existing_preference_writes_and_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let legacy = r#"{"schemaVersion":1,"preferences":{"lastRepository":"/old/location"},"queues":{},"repositoryIds":{},"themes":[]}"#;
+    std::fs::write(directory.path().join("state.json"), legacy).unwrap();
+    let core = Inspector::new(directory.path()).unwrap();
+    let data = core.store.read().unwrap();
+    assert!(data.native_state.is_empty());
+    assert_eq!(
+        data.preferences.last_repository.as_deref(),
+        Some("/old/location")
+    );
+    core.store.update(|data| {
+        data.native_state.insert("queue:file:fingerprint".into(),serde_json::json!({"body":"unsaved review","side":"old","line":2,"scroll_line":32,"scroll_offset":11}));
+        Ok(())
+    }).unwrap();
+    core.save_preferences(data.preferences).unwrap();
+    drop(core);
+    let reopened = Inspector::new(directory.path()).unwrap();
+    let data = reopened.store.read().unwrap();
+    assert_eq!(
+        data.native_state["queue:file:fingerprint"]["body"],
+        "unsaved review"
+    );
+    assert_eq!(
+        data.preferences.last_repository.as_deref(),
+        Some("/old/location")
+    );
+    assert_eq!(data.schema_version, 1);
+}

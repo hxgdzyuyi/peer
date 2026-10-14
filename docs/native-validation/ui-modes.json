@@ -1,0 +1,11 @@
+{
+  "passed": [
+    "staged",
+    "unstaged",
+    "all",
+    "branch",
+    "commit",
+    "code",
+    "rapid-switch-final-all"
+  ]
+}

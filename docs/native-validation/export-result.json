@@ -1,0 +1,13 @@
+{
+  "saved_via_native_dialog": true,
+  "clipboard_matches_saved_file": true,
+  "old_side_and_outdated_markers": [
+    {
+      "file": "hello.rs",
+      "line": 2,
+      "side": "old",
+      "comment": "Old-side native review",
+      "outdated": true
+    }
+  ]
+}

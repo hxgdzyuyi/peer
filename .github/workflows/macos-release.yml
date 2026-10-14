@@ -1,64 +1,13 @@
-name: Package macOS (Apple Silicon)
-on:
-  workflow_dispatch:
-    inputs:
-      release-tag:
-        description: Existing release tag to build and upload (blank for artifact only)
-        type: string
-        required: false
-  workflow_call:
-    inputs:
-      release-tag:
-        type: string
-        required: true
-
-permissions:
-  contents: write
-
+name: Package native macOS (manual artifact only)
+on: workflow_dispatch
 jobs:
-  bundle:
-    runs-on: macos-latest
+  package:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release-tag || github.sha }}
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: aarch64-apple-darwin }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@master
+        with: { toolchain: 1.95.0 }
       - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      - name: Build Apple Silicon app
-        run: |
-          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-          fi
-          npm run bundle
-          test "$(lipo -archs target/aarch64-apple-darwin/release/bundle/macos/Peer.app/Contents/MacOS/peer)" = arm64
-          codesign --verify --deep --strict --verbose=2 target/aarch64-apple-darwin/release/bundle/macos/Peer.app
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Archive and verify app bundle
-        run: |
-          ditto -c -k --sequesterRsrc --keepParent target/aarch64-apple-darwin/release/bundle/macos/Peer.app Peer-macOS-arm64.app.zip
-          verification_dir="$(mktemp -d)"
-          trap 'rm -rf "$verification_dir"' EXIT
-          ditto -x -k Peer-macOS-arm64.app.zip "$verification_dir"
-          codesign --verify --deep --strict --verbose=2 "$verification_dir/Peer.app"
+      - run: scripts/bundle-macos.sh
       - uses: actions/upload-artifact@v4
-        with:
-          name: Peer-macOS-arm64
-          path: Peer-macOS-arm64.app.zip
-          if-no-files-found: error
-      - name: Upload release asset
-        if: inputs.release-tag != ''
-        run: gh release upload "$RELEASE_TAG" Peer-macOS-arm64.app.zip --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.release-tag }}
+        with: { name: Peer-native-macos, path: target/release/bundle/Peer.app }

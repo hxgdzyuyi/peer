@@ -29,13 +29,3 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  macos:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    permissions:
-      contents: write
-    uses: ./.github/workflows/macos-release.yml
-    with:
-      release-tag: ${{ needs.release-please.outputs.tag_name }}
-    secrets: inherit

@@ -1,0 +1,15 @@
+[package]
+name = "peer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+peer-core = { path = "../repo-core" }
+gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["tree-sitter-rust", "tree-sitter-typescript", "tree-sitter-javascript", "tree-sitter-python", "tree-sitter-go", "tree-sitter-toml"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+similar = "2.7"
+dirs = "6"

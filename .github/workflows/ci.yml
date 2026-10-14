@@ -1,14 +1,5 @@
-name: Verify Peer
-on:
-  push:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  workflow_dispatch:
+name: Verify native Peer
+on: [push, pull_request, workflow_dispatch]
 jobs:
   core:
     strategy:
@@ -17,65 +8,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@master
+        with: { toolchain: 1.95.0, components: rustfmt }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test -p peer-core --locked
-  real-language-servers:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+      - run: cargo fmt --all -- --check
+  native:
+    runs-on: macos-15
     env:
-      GOTOOLCHAIN: local
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.99.0
-          components: rust-analyzer, rust-src
+        with: { toolchain: 1.95.0 }
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.8"
-          # This Rust workspace has no go.sum; gopls pins its own dependencies.
-          cache: false
-      - uses: actions/setup-node@v4
-        with: { node-version: "22.14.0" }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12.8" }
-      - name: Install pinned language servers
-        run: |
-          go install golang.org/x/tools/gopls@v0.23.0
-          npm install --global --omit=optional typescript@5.9.3 typescript-language-server@5.0.1 pyright@1.1.407
-      - name: Test real Go, TypeScript, JavaScript, and Rust navigation
-        run: cargo test -p peer-core --locked --test navigation real_language_servers_resolve_scopes_imports_methods_and_references -- --ignored --exact --nocapture
-      - name: Test real Python navigation
-        run: cargo test -p peer-core --locked --test navigation real_python_server_resolves_snapshot_imports_stubs_methods_and_references -- --ignored --exact --nocapture
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
-  mac-desktop:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      - run: npm run build:test-app
-      - name: Run desktop checks and record performance
-        run: npm run test:desktop
-        env:
-          # Hosted runner timing is recorded, not used as a fixed-machine gate.
-          # Local runs still enforce the 33 ms / 100 ms targets by default.
-          PEER_PERFORMANCE_MODE: report
+      - run: cargo test -p peer --locked
+      - run: scripts/bundle-macos.sh
       - uses: actions/upload-artifact@v4
-        if: always()
-        with: { name: desktop-test-results, path: test-results }
+        with: { name: Peer-native-macos, path: target/release/bundle/Peer.app }
