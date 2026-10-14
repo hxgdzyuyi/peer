@@ -1,0 +1,11 @@
+{
+  "passed": [
+    "native-window",
+    "deleted-file-selected",
+    "folder-collapse-keeps-deleted-file",
+    "child-file-selected",
+    "palette-reveals-child",
+    "distinct-deleted-file-selected"
+  ],
+  "scenario": "tracked file replaced by directory"
+}

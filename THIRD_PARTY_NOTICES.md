@@ -10,6 +10,7 @@ original notices remain under `licenses/` and are copied into macOS bundles.
 
 | Component | Upstream | Notice |
 |---|---|---|
+| Bundled Lucide icons (GPUI Kit assets) | https://github.com/lucide-icons/lucide | licenses/lucide.txt |
 | Shiki themes | https://github.com/shikijs/shiki | licenses/shiki.txt |
 | GitHub Light / Dark | https://github.com/primer/github-vscode-theme | licenses/github-theme.txt |
 | One Dark Pro | https://github.com/Binaryify/OneDark-Pro | licenses/one-dark-pro.txt |

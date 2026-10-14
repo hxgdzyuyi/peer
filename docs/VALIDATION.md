@@ -2,6 +2,15 @@
 
 Baseline: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`, independently checked against upstream main. Implementation branch: `native/gpui-migration`. Historical WebView results are isolated in [VALIDATION-WEBVIEW-BASELINE.md](VALIDATION-WEBVIEW-BASELINE.md); none count as native acceptance.
 
+## File-tree follow-up
+
+The user's desktop video review subsequently identified gaps in the original
+native tree acceptance. [The follow-up report](NATIVE-TREE-FOLLOWUP.md) documents
+the centered-label/space-indent implementation, missing icons/asset registration,
+missing ancestor reveal and multi-file scroll tracking, and their native repairs.
+Its richer same-fixture screenshots and window tests supersede earlier tree-parity
+inferences. The original baseline remains available for comparison.
+
 ## Executed checks
 
 | Check | Result and evidence |

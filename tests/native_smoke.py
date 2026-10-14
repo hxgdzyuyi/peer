@@ -87,6 +87,13 @@ def screenshot(name):
     time.sleep(1)
     run('import', '-window', 'root', str(output / f'{name}.png'))
 
+def rendered(phrase):
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        screenshot('ready-controls')
+        if phrase.lower() in run('tesseract',str(output/'ready-controls.png'),'stdout').lower(): return
+    raise AssertionError('Rendered control did not appear: '+phrase)
+
 def comments():
     return [c for q in state().get('queues', {}).values() for c in q['comments']]
 
@@ -123,7 +130,7 @@ try:
     wait('reviewed-saved', lambda: any('a.rs' in q['reviewed'] for q in state().get('queues', {}).values()))
     screenshot('02-comment-reviewed')
     type_at(1200, 210, 'Unsubmitted native draft')
-    click(120, 192); time.sleep(.4); click(120, 160)
+    click(120, 216); wait('draft-switch-other-file',lambda:state()['preferences']['sessions'][str(root)]['selectedPath']=='b.txt'); click(120, 184)
     screenshot('03-draft-restored')
     wait('draft-persisted', lambda: any(v.get('body') == 'Unsubmitted native draft' for v in state().get('nativeState', {}).values()))
     for x, mode in [(190, 'staged'), (270, 'unstaged'), (110, 'all')]:
@@ -151,14 +158,14 @@ try:
     type_at(450, 24, str(root), clear=True); run('xdotool', 'key', 'Return'); screenshot('08-recovered')
     click(1395, 24); time.sleep(.4)
     screenshot('09-settings-appearance')
-    click(390, 111); time.sleep(.2)
+    click(390, 111); rendered("Font size")
     click(454, 164); click(454, 208); click(680, 251)
     screenshot('10-settings-viewer')
-    click(490, 111); time.sleep(.2)
+    click(490, 111); rendered("Python interpreter")
     click(340, 199)
     type_at(700, 365, '/usr/bin/python3', clear=True)
     screenshot('11-settings-navigation')
-    click(589, 111); time.sleep(.2)
+    click(589, 111); rendered("Git executable path")
     type_at(550, 195, '/usr/bin/git', clear=True)
     screenshot('12-settings-git')
     click(307, 835)
@@ -191,11 +198,11 @@ try:
     (root / 'conflict.txt').write_text('<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n')
 
     click(1248, 24); time.sleep(1)
-    type_at(120, 118, 'quick/', clear=True)
+    type_at(120, 142, 'quick/', clear=True)
     run('xdotool', 'key', '--repeat', '50', '--delay', '25', 'Down')
     def candidate_visible():
         screenshot('14-keyboard-candidate-visible')
-        return re.search(r'file[0O][5S][0O]', run('tesseract', str(output / '14-keyboard-candidate-visible.png'), 'stdout'))
+        return re.search(r'file[0o][5s][0o]', run('tesseract', str(output / '14-keyboard-candidate-visible.png'), 'stdout'), re.IGNORECASE)
     wait('quick-open-candidate-pixels', candidate_visible)
     run('xdotool', 'key', 'Return')
     wait('keyboard-quick-open-beyond-viewport', lambda: state()['preferences']['sessions'][str(root)]['selectedPath'] == 'quick/file050.txt')
@@ -213,7 +220,7 @@ try:
     checks.append('horizontal-scroll-restored-after-layout')
     start(with_path=False)
     for query in ['binary.dat','link.txt','renamed.txt','module','conflict.txt','deferred.txt']:
-        type_at(120, 118, query, clear=True); run('xdotool', 'key', 'Return')
+        type_at(120, 142, query, clear=True); run('xdotool', 'key', 'Return')
         wait('special-file-' + query, lambda query=query: state()['preferences']['sessions'][str(root)]['selectedPath'] == query)
         screenshot('17-' + query)
     click(680,215)

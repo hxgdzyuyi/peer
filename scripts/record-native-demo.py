@@ -86,7 +86,7 @@ try:
     scene('Open demonstration repository and inspect file tree', 5); shot('01-open')
     click(800, 72); scene('Virtual native Diff showing multiple changed files', 5)
     click(813, 119); scene('Switch to side-by-side differences', 5); shot('02-split')
-    click(813, 119); click(800, 72); click(120, 160)
+    click(813, 119); click(800, 72); click(120, 184)
     type_at(370, 118, 'native'); click(620, 118)
     scene('Search original source and highlight match', 5); shot('03-search')
     click(410, 231)

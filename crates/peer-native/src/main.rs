@@ -42,25 +42,27 @@ fn run() -> Result<(), String> {
         .or_else(|| preferences.last_repository.clone());
     let shutdown_core = core.clone();
     let shutdown_runtime = runtime.clone();
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        workspace::init(cx);
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1440.), px(900.)), cx)),
-            window_min_size: Some(size(px(1000.), px(640.))),
-            app_id: Some("dev.repoinspector.app".into()),
-            ..Default::default()
-        };
-        match gpui_kit::open_window(options, cx, move |window, cx| {
-            cx.new(|cx| workspace::Workspace::new(core, runtime, preferences, path, window, cx))
-        }) {
-            Ok(_) => cx.activate(true),
-            Err(error) => {
-                eprintln!("Cannot open native window: {error}");
-                cx.quit();
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            workspace::init(cx);
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::centered(size(px(1440.), px(900.)), cx)),
+                window_min_size: Some(size(px(1000.), px(640.))),
+                app_id: Some("dev.repoinspector.app".into()),
+                ..Default::default()
+            };
+            match gpui_kit::open_window(options, cx, move |window, cx| {
+                cx.new(|cx| workspace::Workspace::new(core, runtime, preferences, path, window, cx))
+            }) {
+                Ok(_) => cx.activate(true),
+                Err(error) => {
+                    eprintln!("Cannot open native window: {error}");
+                    cx.quit();
+                }
             }
-        }
-    });
+        });
     shutdown_runtime.block_on(shutdown_core.shutdown_navigation());
     Ok(())
 }

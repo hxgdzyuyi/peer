@@ -1,0 +1,11 @@
+dbus-daemon[153488]: [session uid=1000 pid=153488 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.1' (uid=1000 pid=153495 comm="/workspace/peer-native-sdk/usr/libexec/xdg-desktop" label="kernel")
+dbus-daemon[153488]: [session uid=1000 pid=153488 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[153508]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=153495 comm="/workspace/peer-native-sdk/usr/libexec/xdg-desktop" label="kernel")
+dbus-daemon[153508]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+dbus-daemon[153488]: [session uid=1000 pid=153488 pidfd=5] Activating service name='org.xfce.Xfconf' requested by ':1.6' (uid=1000 pid=153494 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[153488]: [session uid=1000 pid=153488 pidfd=5] Successfully activated service 'org.xfce.Xfconf'
+{"passed": 29}
+
+(xfconfd:153536): xfconfd-WARNING **: 16:00:49.271: Name org.xfce.Xfconf lost on the message dbus, exiting.
+X connection to :101 broken (explicit kill or server shutdown).

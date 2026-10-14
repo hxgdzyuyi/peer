@@ -1,6 +1,9 @@
+#[path = "file_tree.rs"]
+mod file_tree;
 #[path = "settings.rs"]
 mod settings;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, ResizableState};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -40,7 +43,14 @@ actions!(
         Cancel,
         Quit,
         NextFile,
-        PreviousFile
+        PreviousFile,
+        TreeUp,
+        TreeDown,
+        TreeLeft,
+        TreeRight,
+        TreeConfirm,
+        TreeFirst,
+        TreeLast
     ]
 );
 pub fn init(cx: &mut App) {
@@ -65,7 +75,7 @@ pub fn init(cx: &mut App) {
             MenuItem::action("Select all", input::SelectAll),
         ]),
         Menu::new("Navigate").items([
-            MenuItem::action("Quick open", QuickOpen),
+            MenuItem::action("Go to file…", QuickOpen),
             MenuItem::action("Find", Find),
             MenuItem::action("Go to line", GoLine),
             MenuItem::action("Back", Back),
@@ -74,8 +84,18 @@ pub fn init(cx: &mut App) {
         ]),
     ]);
     cx.bind_keys([
+        KeyBinding::new("up", TreeUp, Some("PeerFileTree")),
+        KeyBinding::new("down", TreeDown, Some("PeerFileTree")),
+        KeyBinding::new("left", TreeLeft, Some("PeerFileTree")),
+        KeyBinding::new("right", TreeRight, Some("PeerFileTree")),
+        KeyBinding::new("enter", TreeConfirm, Some("PeerFileTree")),
+        KeyBinding::new("space", TreeConfirm, Some("PeerFileTree")),
+        KeyBinding::new("home", TreeFirst, Some("PeerFileTree")),
+        KeyBinding::new("end", TreeLast, Some("PeerFileTree")),
         KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("down", NextFile, Some("PeerQuickOpen")),
+        KeyBinding::new("down", NextFile, Some("PeerFileFilter")),
+        KeyBinding::new("up", PreviousFile, Some("PeerFileFilter")),
         KeyBinding::new("up", PreviousFile, Some("PeerQuickOpen")),
         KeyBinding::new("ctrl-n", NextFile, Some("PeerQuickOpen")),
         KeyBinding::new("ctrl-p", PreviousFile, Some("PeerQuickOpen")),
@@ -146,9 +166,17 @@ pub struct Workspace {
     saved_views: BTreeMap<String, SavedView>,
     pending_saves: Vec<tokio::task::JoinHandle<Result<(), String>>>,
     quick_index: usize,
+    quick_input: Entity<InputState>,
+    quick_visible: bool,
+    quick_previous_focus: Option<FocusHandle>,
+    palette_scroll: UniformListScrollHandle,
+    palette_scroll_pending: bool,
     tree_scroll: UniformListScrollHandle,
     quick_scroll_pending: bool,
     collapsed: BTreeSet<String>,
+    tree_focus: FocusHandle,
+    tree_cursor: Option<String>,
+    tree_reveal_pending: bool,
     history: Vec<String>,
     branches: Vec<String>,
     commits: Vec<Commit>,
@@ -255,7 +283,7 @@ impl Workspace {
     ) -> Self {
         window.set_window_title("Peer");
         let path = input("Repository path", window, cx);
-        let filter = input("Filter files / quick open", window, cx);
+        let filter = input("Filter files…", window, cx);
         let reference = input("Branch or commit", window, cx);
         let search = input("Find in old/new source", window, cx);
         let line = input("Line", window, cx);
@@ -310,9 +338,17 @@ impl Workspace {
             saved_views: BTreeMap::new(),
             pending_saves: vec![],
             quick_index: 0,
+            quick_input: input("Type a filename…", window, cx),
+            quick_visible: false,
+            quick_previous_focus: None,
+            palette_scroll: UniformListScrollHandle::new(),
+            palette_scroll_pending: false,
             tree_scroll: UniformListScrollHandle::new(),
             quick_scroll_pending: false,
             collapsed: BTreeSet::new(),
+            tree_focus: cx.focus_handle(),
+            tree_cursor: None,
+            tree_reveal_pending: false,
             history: vec![],
             branches: vec![],
             commits: vec![],
@@ -328,12 +364,53 @@ impl Workspace {
             navigation_request: None,
         };
         this.subscriptions.push(cx.subscribe_in(
+            &this.quick_input.clone(),
+            window,
+            |this, _, event: &InputEvent, w, c| match event {
+                InputEvent::Change => {
+                    this.quick_index = 0;
+                    this.palette_scroll_pending = true;
+                    c.notify();
+                }
+                InputEvent::PressEnter { .. } => {
+                    if let Some(file) = this.palette_files(c).get(this.quick_index) {
+                        this.open_palette_file(file.id.clone(), w, c);
+                    }
+                }
+                _ => {}
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.diff.clone(),
+            window,
+            |this, _, event: &DiffEvent, w, c| {
+                if let DiffEvent::ViewportFileChanged(path) = event {
+                    if this.all_files && this.navigation_file.is_none() {
+                        this.activate_loaded(path, w, c);
+                    }
+                }
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
             &this.filter.clone(),
             window,
             |this, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => {
-                    this.quick_index = 0;
+                    this.quick_index = if this.filter.read(cx).value().is_empty() {
+                        this.snapshot
+                            .as_ref()
+                            .and_then(|s| {
+                                s.files.iter().position(|f| {
+                                    this.tree_cursor.as_deref()
+                                        == Some(format!("file:{}", f.path).as_str())
+                                })
+                            })
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
                     this.quick_scroll_pending = true;
+                    this.tree_reveal_pending = true;
                     window.refresh();
                     cx.notify();
                 }
@@ -656,7 +733,141 @@ impl Workspace {
         );
         cx.notify();
     }
+    fn palette_files(&self, cx: &App) -> Vec<FileEntry> {
+        let query = self.quick_input.read(cx).value().to_lowercase();
+        self.snapshot
+            .as_ref()
+            .map(|s| {
+                s.files
+                    .iter()
+                    .filter(|f| f.path.to_lowercase().contains(&query))
+                    .take(100)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.quick_visible = false;
+        if let Some(focus) = self.quick_previous_focus.take() {
+            focus.focus(window, cx);
+        }
+        cx.notify();
+    }
+    fn open_palette_file(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_palette(window, cx);
+        // A global file jump must never leave its selected row hidden by a
+        // previous sidebar query. The palette owns a separate query input.
+        self.filter.update(cx, |s, cx| s.set_value("", window, cx));
+        self.select(id, false, window, cx);
+        self.diff.read(cx).focus_handle(cx).focus(window, cx);
+    }
+    fn tree_rows(&self, cx: &App) -> Vec<file_tree::Row> {
+        file_tree::rows(
+            self.snapshot
+                .as_ref()
+                .map(|s| s.files.as_slice())
+                .unwrap_or(&[]),
+            &self.filter.read(cx).value(),
+            &self.collapsed,
+        )
+    }
+    fn reveal_tree(&mut self, path: &str) {
+        file_tree::reveal(path, &mut self.collapsed);
+        self.tree_cursor = Some(format!("file:{path}"));
+        self.tree_reveal_pending = true;
+    }
+    fn tree_click(
+        &mut self,
+        path: &str,
+        folder: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tree_focus.focus(window, cx);
+        self.tree_cursor = Some(format!("{}:{path}", if folder { "dir" } else { "file" }));
+        if folder {
+            if !self.collapsed.remove(path) {
+                self.collapsed.insert(path.into());
+            }
+        } else if let Some(file) = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.files.iter().find(|f| f.path == path))
+        {
+            self.select(file.id.clone(), false, window, cx);
+        }
+        cx.notify();
+    }
+    fn tree_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.tree_rows(cx);
+        if rows.is_empty() {
+            return;
+        }
+        let ix = rows
+            .iter()
+            .position(|r| Some(&r.key()) == self.tree_cursor.as_ref())
+            .unwrap_or(0);
+        let row = &rows[ix];
+        let mut target = ix;
+        match key {
+            "up" => target = ix.saturating_sub(1),
+            "down" => target = (ix + 1).min(rows.len() - 1),
+            "home" => target = 0,
+            "end" => target = rows.len() - 1,
+            "left" if row.file.is_none() && !self.collapsed.contains(&row.path) => {
+                self.collapsed.insert(row.path.clone());
+            }
+            "left" => {
+                if let Some((parent, _)) = row.path.rsplit_once('/') {
+                    if let Some(i) = rows
+                        .iter()
+                        .position(|r| r.path == parent && r.file.is_none())
+                    {
+                        target = i;
+                    }
+                }
+            }
+            "right" if row.file.is_none() => {
+                if !self.collapsed.remove(&row.path) {
+                    target = (ix + 1).min(rows.len() - 1);
+                }
+            }
+            "enter" if row.file.is_none() => {
+                if !self.collapsed.remove(&row.path) {
+                    self.collapsed.insert(row.path.clone());
+                }
+            }
+            _ => {}
+        }
+        let chosen = &rows[target];
+        self.tree_cursor = Some(chosen.key());
+        self.tree_reveal_pending = true;
+        if let Some(file) = &chosen.file {
+            if (key != "left" && key != "right") || target != ix {
+                self.select(file.id.clone(), false, window, cx);
+            }
+        }
+        window.refresh();
+        cx.notify();
+    }
     fn select(&mut self, id: String, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(path) = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.files.iter().find(|f| f.id == id))
+            .map(|f| f.path.clone())
+        {
+            self.reveal_tree(&path);
+        }
+        if !force
+            && !self.all_files
+            && self.navigation_file.is_none()
+            && self.content.as_ref().is_some_and(|f| f.file_id == id)
+        {
+            cx.notify();
+            return;
+        }
         if self.all_files && !force {
             if let Some(path) = self
                 .loaded_files
@@ -1495,6 +1706,7 @@ impl Workspace {
         self.remember(cx);
         self.cancel_navigation();
         self.file_epoch += 1;
+        self.reveal_tree(path);
         self.content = Some(content);
         self.anchor = None;
         self.editing = None;
@@ -1505,6 +1717,7 @@ impl Workspace {
             .unwrap_or_default();
         self.comment
             .update(cx, |s, cx| s.set_value(body, window, cx));
+        self.remember(cx);
         cx.notify();
     }
     fn load_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1680,108 +1893,170 @@ impl Render for Workspace {
                     .collect()
             })
             .unwrap_or_default();
-        let selected = self.content.as_ref().map(|c| c.file_id.clone());
         let quick_selected = if self.filter.read(cx).focus_handle(cx).is_focused(window) {
-            entries.get(self.quick_index).map(|f| f.id.clone())
+            entries.get(self.quick_index).map(|f| f.path.clone())
         } else {
             None
         };
-        let queue = self.queue.clone();
-        let mut rows: Vec<(String, Option<FileEntry>)> = Vec::new();
-        let mut seen = BTreeSet::new();
-        let filtering = !filter.is_empty() || quick_selected.is_some();
-        for file in entries {
-            let parts: Vec<_> = file.path.split('/').collect();
-            let mut parent = String::new();
-            let mut hidden = false;
-            for part in parts.iter().take(parts.len().saturating_sub(1)) {
-                if !parent.is_empty() {
-                    parent.push('/');
-                }
-                parent.push_str(part);
-                if seen.insert(parent.clone()) {
-                    rows.push((parent.clone(), None));
-                }
-                if !filtering && self.collapsed.contains(&parent) {
-                    hidden = true;
-                    break;
-                }
-            }
-            if !hidden {
-                rows.push((file.path.clone(), Some(file)));
-            }
-        }
-        let weak = cx.entity().downgrade();
-        let collapsed = self.collapsed.clone();
-        if self.quick_scroll_pending {
-            if let Some(index) = rows.iter().position(|(_, f)| {
-                f.as_ref()
-                    .is_some_and(|f| Some(&f.id) == quick_selected.as_ref())
-            }) {
-                self.tree_scroll
-                    .scroll_to_item(index, ScrollStrategy::Nearest);
+        let rows = self.tree_rows(cx);
+        let selected = quick_selected
+            .as_ref()
+            .map(|p| format!("file:{p}"))
+            .or_else(|| self.tree_cursor.clone());
+        if self.quick_scroll_pending || self.tree_reveal_pending {
+            if let Some(ix) = rows
+                .iter()
+                .position(|r| Some(&r.key()) == selected.as_ref())
+            {
+                self.tree_scroll.scroll_to_item(ix, ScrollStrategy::Nearest);
             }
             self.quick_scroll_pending = false;
+            self.tree_reveal_pending = false;
         }
-        let tree = uniform_list("file-tree", rows.len(), move |range, _, _| {
+        let queue = self.queue.clone();
+        let weak = cx.entity().downgrade();
+        let collapsed = self.collapsed.clone();
+        let tree_query = filter.clone();
+        let max_indent =
+            ((self.preferences.sidebar_widths.files.saturating_sub(110)) / 14) as usize;
+        let tree = uniform_list("file-tree", rows.len(), move |range, _, cx| {
             range
                 .map(|ix| {
-                    let (path, file) = &rows[ix];
-                    let path = path.clone();
+                    let row = &rows[ix];
+                    let path = row.path.clone();
+                    let hint = path.clone();
                     let weak = weak.clone();
-                    let depth = path.matches('/').count();
-                    if let Some(file) = file {
-                        let id = file.id.clone();
-                        let checked = queue.reviewed.contains_key(&file.path);
-                        Button::new(SharedString::from(format!("file-{}", file.id)))
-                            .ghost()
-                            .w_full()
-                            .label(format!(
-                                "{}{} {} {}",
-                                "  ".repeat(depth),
-                                if checked { "✓" } else { "" },
-                                file.status,
-                                path.rsplit('/').next().unwrap_or(&path)
-                            ))
-                            .selected(
-                                quick_selected.as_ref().or(selected.as_ref()) == Some(&file.id),
-                            )
-                            .on_click(move |_, window, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.select(id.clone(), false, window, cx)
-                                });
-                            })
-                            .into_any_element()
-                    } else {
-                        Button::new(SharedString::from(format!("folder-{path}")))
-                            .ghost()
-                            .w_full()
-                            .label(format!(
-                                "{}{} {}",
-                                "  ".repeat(depth),
-                                if collapsed.contains(&path) {
-                                    "▸"
-                                } else {
-                                    "▾"
-                                },
-                                path.rsplit('/').next().unwrap_or(&path)
-                            ))
-                            .on_click(move |_, _, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    if !this.collapsed.remove(&path) {
-                                        this.collapsed.insert(path.clone());
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                            .into_any_element()
-                    }
+                    let expanded = !collapsed.contains(&path);
+                    let folder = row.file.is_none();
+                    let checked = queue.reviewed.contains_key(&path);
+                    let commented = queue.comments.iter().any(|c| c.path == path);
+                    let status = row.file.as_ref().map(|f| f.status.as_str()).unwrap_or("");
+                    let color = match status {
+                        "added" | "untracked" => cx.theme().success,
+                        "deleted" | "conflict" => cx.theme().danger,
+                        _ => cx.theme().muted_foreground,
+                    };
+                    list::ListItem::new(SharedString::from(format!("tree-{}", row.key())))
+                        .accessibility_label(path.clone())
+                        .h(px(32.))
+                        .text_sm()
+                        .w_full()
+                        .min_w_0()
+                        .gap_1()
+                        .pl(px(8. + row.depth.min(max_indent) as f32 * 14.))
+                        .pr_2()
+                        .selected(selected.as_ref() == Some(&row.key()))
+                        .tooltip(move |w, c| tooltip::Tooltip::new(hint.clone()).build(w, c))
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .min_w_0()
+                                .gap_1()
+                                .child(div().w(px(12.)).flex_shrink_0().when(folder, |d| {
+                                    d.child(
+                                        Icon::new(if expanded {
+                                            IconName::ChevronDown
+                                        } else {
+                                            IconName::ChevronRight
+                                        })
+                                        .size(px(12.)),
+                                    )
+                                }))
+                                .child(
+                                    Icon::new(if folder {
+                                        if expanded {
+                                            gpui_kit::assets::IconName::FolderOpen
+                                        } else {
+                                            gpui_kit::assets::IconName::Folder
+                                        }
+                                    } else {
+                                        gpui_kit::assets::IconName::FileCode
+                                    })
+                                    .size(px(14.))
+                                    .flex_shrink_0(),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(
+                                            StyledText::new(format!(
+                                                "{}{}",
+                                                if row.depth > max_indent { "…/" } else { "" },
+                                                row.label
+                                            ))
+                                            .with_highlights(
+                                                file_tree::matches(&row.label, &tree_query)
+                                                    .into_iter()
+                                                    .map(|range| {
+                                                        (
+                                                            range,
+                                                            HighlightStyle {
+                                                                background_color: Some(
+                                                                    cx.theme().selection,
+                                                                ),
+                                                                font_weight: Some(FontWeight::BOLD),
+                                                                ..Default::default()
+                                                            },
+                                                        )
+                                                    }),
+                                            ),
+                                        ),
+                                )
+                                .when(commented, |item| {
+                                    item.child(
+                                        Icon::new(gpui_kit::assets::IconName::MessageSquare)
+                                            .size(px(12.))
+                                            .flex_shrink_0(),
+                                    )
+                                })
+                                .when(checked, |item| {
+                                    item.child(
+                                        Icon::new(IconName::Check)
+                                            .size(px(13.))
+                                            .text_color(cx.theme().success)
+                                            .flex_shrink_0(),
+                                    )
+                                })
+                                .when(!checked && !folder, |item| {
+                                    item.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(color)
+                                            .flex_shrink_0()
+                                            .child(file_tree::status(status)),
+                                    )
+                                }),
+                        )
+                        .on_click(move |_, window, cx| {
+                            let _ = weak
+                                .update(cx, |this, cx| this.tree_click(&path, folder, window, cx));
+                        })
+                        .into_any_element()
                 })
                 .collect::<Vec<_>>()
         })
         .track_scroll(&self.tree_scroll)
         .flex_1()
         .min_h_0();
+        let tree = v_flex()
+            .id("repository-file-tree")
+            .key_context("PeerFileTree")
+            .track_focus(&self.tree_focus)
+            .flex_1()
+            .min_h_0()
+            .overflow_hidden()
+            .child(tree)
+            .vertical_scrollbar(&self.tree_scroll)
+            .on_action(cx.listener(|this, _: &TreeUp, w, c| this.tree_key("up", w, c)))
+            .on_action(cx.listener(|this, _: &TreeDown, w, c| this.tree_key("down", w, c)))
+            .on_action(cx.listener(|this, _: &TreeLeft, w, c| this.tree_key("left", w, c)))
+            .on_action(cx.listener(|this, _: &TreeRight, w, c| this.tree_key("right", w, c)))
+            .on_action(cx.listener(|this, _: &TreeConfirm, w, c| this.tree_key("enter", w, c)))
+            .on_action(cx.listener(|this, _: &TreeFirst, w, c| this.tree_key("home", w, c)))
+            .on_action(cx.listener(|this, _: &TreeLast, w, c| this.tree_key("end", w, c)));
         let queue = self.queue.clone();
         let mut feedback = v_flex().gap_2().p_2();
         for comment in queue.comments {
@@ -2115,13 +2390,48 @@ impl Render for Workspace {
             .border_color(cx.theme().border)
             .min_h_0()
             .child(
+                h_flex()
+                    .h(px(24.))
+                    .px_2()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        if self
+                            .snapshot
+                            .as_ref()
+                            .is_some_and(|s| s.comparison.view == "code")
+                        {
+                            "REPOSITORY"
+                        } else {
+                            "CHANGED FILES"
+                        },
+                    )
+                    .child(div().flex_1())
+                    .child(format!(
+                        "{}",
+                        self.snapshot.as_ref().map(|s| s.files.len()).unwrap_or(0)
+                    )),
+            )
+            .child(
                 div()
                     .id("quick-open")
-                    .key_context("PeerQuickOpen")
+                    .key_context("PeerFileFilter")
                     .p_2()
-                    .child(Input::new(&self.filter)),
+                    .child(
+                        Input::new(&self.filter).prefix(Icon::new(IconName::Search).size(px(14.))),
+                    ),
             )
-            .child(tree);
+            .child(tree)
+            .child(
+                h_flex()
+                    .h(px(24.))
+                    .px_2()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Local repository")
+                    .child(div().flex_1())
+                    .child("Read only"),
+            );
         if self.history_visible {
             let mut commits = v_flex().gap_1();
             for commit in self.commits.clone() {
@@ -2160,6 +2470,16 @@ impl Render for Workspace {
             .text_color(cx.theme().foreground)
             .text_sm()
             .on_action(cx.listener(|this, _: &NextFile, window, cx| {
+                if this.quick_visible {
+                    let count = this.palette_files(cx).len();
+                    if count > 0 {
+                        this.quick_index = (this.quick_index + 1) % count;
+                    }
+                    this.palette_scroll_pending = true;
+                    window.refresh();
+                    cx.notify();
+                    return;
+                }
                 let filter = this.filter.read(cx).value().to_lowercase();
                 let count = this
                     .snapshot
@@ -2181,6 +2501,16 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &PreviousFile, window, cx| {
+                if this.quick_visible {
+                    let count = this.palette_files(cx).len();
+                    if count > 0 {
+                        this.quick_index = (this.quick_index + count - 1) % count;
+                    }
+                    this.palette_scroll_pending = true;
+                    window.refresh();
+                    cx.notify();
+                    return;
+                }
                 this.quick_index = this.quick_index.saturating_sub(1);
                 this.quick_scroll_pending = true;
                 window.refresh();
@@ -2188,11 +2518,17 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &Open, w, c| this.choose_folder(w, c)))
             .on_action(cx.listener(|this, _: &Refresh, w, c| this.refresh(w, c)))
-            .on_action(
-                cx.listener(|this, _: &QuickOpen, w, c| {
-                    this.filter.update(c, |s, c| s.focus(w, c))
-                }),
-            )
+            .on_action(cx.listener(|this, _: &QuickOpen, w, c| {
+                this.quick_previous_focus = w.focused(c);
+                this.quick_visible = true;
+                this.quick_index = 0;
+                this.palette_scroll_pending = true;
+                this.quick_input.update(c, |s, c| {
+                    s.set_value("", w, c);
+                    s.focus(w, c);
+                });
+                c.notify();
+            }))
             .on_action(
                 cx.listener(|this, _: &Find, w, c| this.search.update(c, |s, c| s.focus(w, c))),
             )
@@ -2204,6 +2540,10 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Definition, w, c| this.navigate("auto", w, c)))
             .on_action(cx.listener(|this, _: &References, w, c| this.navigate("references", w, c)))
             .on_action(cx.listener(|this, _: &Cancel, w, c| {
+                if this.quick_visible {
+                    this.close_palette(w, c);
+                    return;
+                }
                 this.cancel_navigation();
                 this.settings_visible = false;
                 this.apply_theme(w, c);
@@ -2536,6 +2876,120 @@ impl Render for Workspace {
                         self.notice.clone()
                     }),
             );
+        if self.quick_visible {
+            let results = self.palette_files(cx);
+            let count = results.len();
+            if self.palette_scroll_pending {
+                self.palette_scroll
+                    .scroll_to_item(self.quick_index, ScrollStrategy::Nearest);
+                self.palette_scroll_pending = false;
+            }
+            let cursor = self.quick_index;
+            let query = self.quick_input.read(cx).value().to_string();
+            let weak = cx.entity().downgrade();
+            let choices = uniform_list("quick-file-results", count, move |range, _, cx| {
+                range
+                    .map(|ix| {
+                        let file = &results[ix];
+                        let id = file.id.clone();
+                        let weak = weak.clone();
+                        list::ListItem::new(SharedString::from(format!("quick-file-{id}")))
+                            .h(px(32.))
+                            .text_sm()
+                            .selected(ix == cursor)
+                            .accessibility_label(file.path.clone())
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .w_full()
+                                    .min_w_0()
+                                    .child(Icon::new(IconName::File).size(px(14.)).flex_shrink_0())
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .text_ellipsis()
+                                            .child(
+                                                StyledText::new(file.path.clone()).with_highlights(
+                                                    file_tree::matches(&file.path, &query)
+                                                        .into_iter()
+                                                        .map(|range| {
+                                                            (
+                                                                range,
+                                                                HighlightStyle {
+                                                                    background_color: Some(
+                                                                        cx.theme().selection,
+                                                                    ),
+                                                                    font_weight: Some(
+                                                                        FontWeight::BOLD,
+                                                                    ),
+                                                                    ..Default::default()
+                                                                },
+                                                            )
+                                                        }),
+                                                ),
+                                            ),
+                                    ),
+                            )
+                            .on_click(move |_, w, c| {
+                                let _ = weak
+                                    .update(c, |this, c| this.open_palette_file(id.clone(), w, c));
+                            })
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .track_scroll(&self.palette_scroll)
+            .flex_1()
+            .min_h_0();
+            root = root.relative().child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .bg(rgba(0x00000055))
+                    .flex()
+                    .justify_center()
+                    .pt(px(100.))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, w, c| this.close_palette(w, c)),
+                    )
+                    .child(
+                        v_flex()
+                            .key_context("PeerQuickOpen")
+                            .w(px(760.))
+                            .h(px(480.))
+                            .p_3()
+                            .gap_2()
+                            .bg(cx.theme().background)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded_lg()
+                            .shadow_lg()
+                            .on_mouse_down(MouseButton::Left, |_, _, c| c.stop_propagation())
+                            .child(
+                                h_flex().child("Go to file").child(div().flex_1()).child(
+                                    Button::new("close-quick-file")
+                                        .ghost()
+                                        .label("Esc · Close")
+                                        .on_click(
+                                            cx.listener(|this, _, w, c| this.close_palette(w, c)),
+                                        ),
+                                ),
+                            )
+                            .child(Input::new(&self.quick_input))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .child(choices)
+                                    .vertical_scrollbar(&self.palette_scroll),
+                            )
+                            .child(format!("{count} results · ↑ ↓ choose · Enter open")),
+                    ),
+            );
+        }
         let _ = (window, &self.subscriptions);
         root
     }

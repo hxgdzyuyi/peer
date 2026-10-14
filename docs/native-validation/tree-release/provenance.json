@@ -1,0 +1,10 @@
+{
+  "profile": "release",
+  "binary": "target/release/peer",
+  "sha256": "77dc7ccb42bf3ccf732ea6a7fdd6f4f361f695d2c460b6e52c85410f3cd914a4",
+  "source_base_commit": "db2e8604e2ca45a5f417140bceba913d40b853f5",
+  "source": "uncommitted follow-up included with this evidence commit",
+  "display": "Xvfb 1440x900, xfwm4, software Vulkan",
+  "video_seconds": 68.666667,
+  "native_interaction_assertions": 24
+}

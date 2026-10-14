@@ -103,7 +103,7 @@ try:
     if scenario != 'desktop':
         wait('repository-opened',lambda:state().get('preferences',{}).get('lastRepository')==str(root))
         if scenario == 'navigation':
-            enter(120,118,'caller.py');key('Return')
+            enter(120,142,'caller.py');key('Return')
             wait('caller-selected',lambda:state()['preferences']['sessions'][str(root)]['selectedPath']=='caller.py')
             click(395,231);enter(1200,210,'Draft survives frozen navigation');enter(350,835,'8');key('F12')
             wait('real-definition-results',lambda:pixels_contain('1 results'));shot('01-definition-result')
@@ -156,7 +156,7 @@ try:
     assert (root/'a.rs').exists() and any(q['comments'] for q in state()['queues'].values());checks.append('remove-preserved-source-and-review');shot('06-removed')
     click(1172,24);enter(450,24,str(root));key('Return')
     wait('removed-repository-reopened',lambda:state()['preferences']['lastRepository']==str(root))
-    enter(120,118,'caller.py');key('Return')
+    enter(120,142,'caller.py');key('Return')
     wait('other-file-selected',lambda:state()['preferences']['sessions'][str(root)]['selectedPath']=='caller.py')
     click(1200,362)
     wait('comment-location-jump',lambda:state()['preferences']['sessions'][str(root)]['selectedPath']=='a.rs')

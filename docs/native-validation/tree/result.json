@@ -1,0 +1,30 @@
+{
+  "passed": [
+    "native-window",
+    "selected-app/components/card.rs",
+    "selected-tree-row-visible",
+    "folder-collapse-hides-descendants",
+    "right-expands-directory",
+    "left-collapses-child-directory",
+    "palette-starts-with-collapsed-ancestor",
+    "independent-go-to-file-visible",
+    "palette-reveals-collapsed-deep-file",
+    "palette-keyboard-opens-fiftieth-result",
+    "selected-app/components/deep/one/two/three/four/five/six/very-long-unicode-\u732b-file-name.rs",
+    "selected-docs/guide.md",
+    "back-restores-deep-file",
+    "selected-many/file0999.rs",
+    "palette-cancel-keeps-selection",
+    "selected-row-visible",
+    "scrollbar-drag-reaches-root",
+    "selected-many/file0999.rs",
+    "keyboard-end-opens-last-file",
+    "keyboard-up-opens-previous-file",
+    "keyboard-down-opens-next-file",
+    "selected-app/components/card.rs",
+    "multifile-load-completed",
+    "multifile-wheel-updates-selected"
+  ],
+  "files": 1009,
+  "method": "native keyboard/mouse + OCR + persistent state; screenshots visually inspected"
+}

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 if [[ $(uname -s) != Linux ]]; then echo 'These window tests require Linux/X11' >&2; exit 1; fi
 if [[ ${1:-} != --session ]]; then
   scenario=${1:-smoke}
-  case "$scenario" in smoke|desktop|navigation|errors) ;; *) echo 'Use smoke, desktop, navigation or errors' >&2; exit 2;; esac
+  case "$scenario" in smoke|desktop|navigation|errors|tree|transition) ;; *) echo 'Use smoke, desktop, navigation, errors, tree or transition' >&2; exit 2;; esac
   output=${2:-test-results/native-$scenario}
   config=$(mktemp -d /tmp/peer-test-config-XXXXXX)
   trap 'rm -rf "$config"' EXIT
@@ -41,7 +41,11 @@ if [[ $scenario == desktop ]]; then
   children+=("$!")
 fi
 if [[ $scenario == smoke ]]; then
-  python3 tests/native_smoke.py target/debug/peer "$output"
+  python3 tests/native_smoke.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
+elif [[ $scenario == transition ]]; then
+  python3 tests/native_tree_transition.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
+elif [[ $scenario == tree ]]; then
+  python3 tests/native_tree.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
 else
-  PEER_NATIVE_SCENARIO="$scenario" python3 tests/native_desktop.py target/debug/peer "$output"
+  PEER_NATIVE_SCENARIO="$scenario" python3 tests/native_desktop.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
 fi

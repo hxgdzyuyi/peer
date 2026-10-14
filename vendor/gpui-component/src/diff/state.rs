@@ -77,6 +77,8 @@ pub(crate) enum FoldExpansion {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum DiffEvent {
+    /// The first visible file changed through user scrolling.
+    ViewportFileChanged(SharedString),
     /// A pointer gesture began selecting source lines from a line number.
     SelectionStarted(DiffLineRange),
     /// A pointer, gutter or keyboard operation changed the selected source lines.
@@ -412,6 +414,23 @@ impl DiffState {
             _presentation: Task::ready(()),
             _selection_subscription,
         };
+        state
+            .list
+            .set_scroll_handler(cx.listener(|_, _: &gpui::ListScrollEvent, _, cx| {
+                // ListState invokes this while its scroll storage is borrowed. Read
+                // the final (not the preceding painted) offset after that borrow ends.
+                let weak = cx.entity().downgrade();
+                cx.defer(move |cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        let ix = this.list.logical_scroll_top().item_ix;
+                        if let Some(row) = this.rows.get(ix) {
+                            if let Some(file) = this.files.get(row.file()) {
+                                cx.emit(DiffEvent::ViewportFileChanged(file.path().clone()));
+                            }
+                        }
+                    });
+                });
+            }));
         state.rebuild(true);
         state
     }
