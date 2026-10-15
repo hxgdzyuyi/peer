@@ -207,6 +207,7 @@ pub struct Diff {
     syntax_highlight: bool,
     search_highlights: Rc<Vec<(DiffLinePosition, std::ops::Range<usize>)>>,
     header_visible: bool,
+    sticky_header_path: Option<SharedString>,
     hover_highlight: DiffHoverHighlight,
     hunk_separator: DiffHunkSeparator,
     change_indicator: DiffChangeIndicator,
@@ -246,6 +247,7 @@ impl Diff {
             syntax_highlight: true,
             search_highlights: Rc::new(Vec::new()),
             header_visible: true,
+            sticky_header_path: None,
             hover_highlight: DiffHoverHighlight::default(),
             hunk_separator: DiffHunkSeparator::default(),
             change_indicator: DiffChangeIndicator::default(),
@@ -279,6 +281,12 @@ impl Diff {
         self.hover_highlight = highlight;
         self
     }
+    /// Keep the selected review file's title and its bound actions visible.
+    pub fn sticky_header_path(mut self, path: Option<SharedString>) -> Self {
+        self.sticky_header_path = path;
+        self
+    }
+
     /// Marks the start of each hunk. Default is [`DiffHunkSeparator::Metadata`].
     pub fn hunk_separator(mut self, separator: DiffHunkSeparator) -> Self {
         self.hunk_separator = separator;
@@ -554,6 +562,25 @@ fn render_diff(
         [file] => t!("Diff.Viewer", name = file.path().as_str()).to_string(),
         files => t!("Diff.ViewerFiles", count = files.len()).to_string(),
     };
+    let sticky = props
+        .sticky_header_path
+        .as_ref()
+        .and_then(|path| {
+            state
+                .readable_file()
+                .or_else(|| state.files().iter().position(|file| file.path() == path))
+        })
+        .filter(|file| state.geometry().borrow().header_scrolled_out(*file))
+        .map(|file| {
+            render_file_header(
+                file,
+                &code,
+                window,
+                cx,
+                true,
+                Some(state.is_file_collapsed(state.files()[file].path())),
+            )
+        });
     let body = div()
         .id("diff-body")
         .relative()
@@ -741,6 +768,7 @@ fn render_diff(
         .text_sm()
         .border_1()
         .border_color(cx.theme().border)
+        .children(sticky)
         .child(body)
         .refine_style(&props.style)
         .into_any_element()
@@ -881,8 +909,16 @@ fn render_row(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    match row {
-        DisplayRow::File(file) => render_file_header(*file, &code, window, cx),
+    let label = matches!(
+        row,
+        DisplayRow::File(_) | DisplayRow::Notice(_) | DisplayRow::Fold { .. }
+    );
+    let geometry = code.geometry.clone();
+    let file_header = matches!(row, DisplayRow::File(_));
+    let line_height = code.row_height;
+    let file = row.file();
+    let element = match row {
+        DisplayRow::File(file) => render_file_header(*file, &code, window, cx, false, None),
         DisplayRow::Notice(file) => render_notice(&code.files[*file], cx),
         DisplayRow::Hunk { file, hunk } => render_hunk_separator(*file, *hunk, &code, cx),
         DisplayRow::Fold { file, pairs } => render_fold(*file, pairs.clone(), &code, cx),
@@ -940,7 +976,30 @@ fn render_row(
                 )
             }
         }
+    };
+    if !label {
+        return element;
     }
+    div()
+        .relative()
+        .child(element)
+        .child(
+            gpui::canvas(
+                move |bounds, _, _| {
+                    // Label identity is its first line, never trailing annotations or padding.
+                    let height = line_height.min(bounds.size.height);
+                    geometry.borrow_mut().record_label(
+                        file,
+                        gpui::Bounds::new(bounds.origin, gpui::size(bounds.size.width, height)),
+                        file_header,
+                    );
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .into_any_element()
 }
 
 fn render_hunk_separator(
@@ -1129,16 +1188,21 @@ fn render_file_header(
     code: &CodePresentation,
     window: &mut Window,
     cx: &mut App,
+    sticky: bool,
+    collapsed: Option<bool>,
 ) -> AnyElement {
     if !code.header_visible {
         return div()
-            .children(file_annotations(file, code, window, cx))
+            .when(!sticky, |this| {
+                this.children(file_annotations(file, code, window, cx))
+            })
             .into_any_element();
     }
     let document = &code.files[file];
     let foreground = cx.theme().muted_foreground;
     let border = cx.theme().border;
-    let collapsed = code.state.read(cx).is_file_collapsed(document.path());
+    let collapsed =
+        collapsed.unwrap_or_else(|| code.state.read(cx).is_file_collapsed(document.path()));
     let content = if let Some(render) = &code.header.content {
         render(document, window, cx)
     } else {
@@ -1233,7 +1297,9 @@ fn render_file_header(
                 )
                 .child(div().flex_1().min_w_0().child(content)),
         )
-        .children(file_annotations(file, code, window, cx))
+        .when(!sticky, |this| {
+            this.children(file_annotations(file, code, window, cx))
+        })
         .into_any_element()
 }
 

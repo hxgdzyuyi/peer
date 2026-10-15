@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 1,
+  "nativeState": {
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:added.txt": {
+      "body": "",
+      "fingerprint": "9a538ee5c1670a237ced04a1c2a5d665ec481df0adf50a34b05f5f21c4c05edd",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:app/components/card.rs": {
+      "body": "",
+      "fingerprint": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:app/components/deep/one/two/three/four/five/six/very-long-unicode-\u732b-file-name.rs": {
+      "body": "",
+      "fingerprint": "af0a32a13378a9e8d1046543b30f5489df5693b2bbdefc002a995634a1f906e1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:app/components/dialog.rs": {
+      "body": "",
+      "fingerprint": "b97521371da93306e80bf916d94d999908c6dd31acfa25a0ed89e1241c7026a5",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:docs/guide.md": {
+      "body": "",
+      "fingerprint": "b72d0763ae56ca0804c1dba3a33ecfde5e5f27c53273859473b0f5d1d219c0b0",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0000.rs": {
+      "body": "",
+      "fingerprint": "a8205b68c76777e8a8d76cd8fb1f00c823a3f32994e48f64dbb64aa6ce9d10f1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0004.rs": {
+      "body": "",
+      "fingerprint": "66bb418f41464f03bbea071d3e8896a8e651e8a907f993d84e726ffc10e57c25",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0007.rs": {
+      "body": "",
+      "fingerprint": "10c990e7d601b7885bb52ad5341d1e29432d5bec0cbec40d695ccb747d3ceb81",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0009.rs": {
+      "body": "",
+      "fingerprint": "f2d71eba1e345d236f56f6acce3000b44936029d06f7c24be8d69e379084deb4",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0014.rs": {
+      "body": "",
+      "fingerprint": "a6395d4cdba8bb0857a6180922ba270c67af5f477ea620c3a248f33b26e321dc",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0017.rs": {
+      "body": "",
+      "fingerprint": "66a165f35e4196be6bc77239ff14e96d45c1ab174a0b5aab308a1d5321e8d230",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0019.rs": {
+      "body": "",
+      "fingerprint": "9a03235eaaad9963aeda0172165164c9397dd67f2d65fe9391b86b04fdf0f13a",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0023.rs": {
+      "body": "",
+      "fingerprint": "3751a4a6f6d9d440b08b77426d461195fd0e4dbf9befdab11016cf2262a83000",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0025.rs": {
+      "body": "",
+      "fingerprint": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0026.rs": {
+      "body": "",
+      "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 42.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0050.rs": {
+      "body": "",
+      "fingerprint": "9bb1861d6040de14fec28c1a1be5f6acf0468b0c0a957e17ebad090760c5dddc",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:many/file0999.rs": {
+      "body": "",
+      "fingerprint": "67ef34647091ae301a7b7189bf8c1e801029757e084494fbc0036f5bfa885463",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336:z-notes.txt": {
+      "body": "",
+      "fingerprint": "83778955c45ac8ed2f43b30325a9ec357e2474dc17dd45fb07a08422cf004bc3",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    }
+  },
+  "preferences": {
+    "sidebarWidths": {
+      "files": 244,
+      "feedback": 310
+    },
+    "appearance": {
+      "mode": "system",
+      "lightTheme": "github-light",
+      "darkTheme": "github-dark"
+    },
+    "recentRepositories": [
+      "/tmp/peer-desktop-8ibf1oxm/repo"
+    ],
+    "lastRepository": "/tmp/peer-desktop-8ibf1oxm/repo",
+    "sessions": {
+      "/tmp/peer-desktop-8ibf1oxm/repo": {
+        "comparison": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        },
+        "selectedPath": "many/file0026.rs",
+        "scrollTop": 0.0,
+        "lastChanges": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        }
+      }
+    },
+    "tabWidth": 4,
+    "showWhitespace": false,
+    "codeFontSize": 12,
+    "diffLayout": "unified",
+    "allFiles": true,
+    "gitExecutable": null,
+    "languageServers": [
+      {
+        "id": "go",
+        "name": "Go (gopls)",
+        "enabled": true,
+        "languages": {
+          "go": "go"
+        },
+        "executable": "gopls",
+        "args": [],
+        "rootMarkers": [
+          "go.work",
+          "go.mod"
+        ],
+        "env": {
+          "GOFLAGS": "-mod=readonly",
+          "GOPROXY": "off",
+          "GOTOOLCHAIN": "local"
+        },
+        "initializationOptions": {},
+        "settings": {
+          "gopls": {
+            "staticcheck": false
+          }
+        }
+      },
+      {
+        "id": "typescript",
+        "name": "TypeScript / JavaScript",
+        "enabled": true,
+        "languages": {
+          "cjs": "javascript",
+          "cts": "typescript",
+          "js": "javascript",
+          "jsx": "javascriptreact",
+          "mjs": "javascript",
+          "mts": "typescript",
+          "ts": "typescript",
+          "tsx": "typescriptreact"
+        },
+        "executable": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "package.json",
+          "tsconfig.json",
+          "jsconfig.json"
+        ],
+        "env": {},
+        "initializationOptions": {
+          "disableAutomaticTypingAcquisition": true,
+          "tsserver": {
+            "useSyntaxServer": "never"
+          }
+        },
+        "settings": {}
+      },
+      {
+        "id": "python",
+        "name": "Python (Pyright)",
+        "enabled": true,
+        "languages": {
+          "py": "python",
+          "pyi": "python"
+        },
+        "executable": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "pyrightconfig.json",
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "requirements.txt",
+          "Pipfile"
+        ],
+        "env": {},
+        "initializationOptions": {},
+        "settings": {
+          "python": {
+            "analysis": {
+              "autoSearchPaths": true
+            }
+          }
+        }
+      },
+      {
+        "id": "rust",
+        "name": "Rust (rust-analyzer)",
+        "enabled": true,
+        "languages": {
+          "rs": "rust"
+        },
+        "executable": "rust-analyzer",
+        "args": [],
+        "rootMarkers": [
+          "Cargo.toml",
+          "rust-project.json"
+        ],
+        "env": {
+          "CARGO_NET_OFFLINE": "true"
+        },
+        "initializationOptions": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        },
+        "settings": {
+          "rust-analyzer": {
+            "cargo": {
+              "buildScripts": {
+                "enable": false
+              }
+            },
+            "procMacro": {
+              "enable": false
+            },
+            "checkOnSave": false
+          }
+        }
+      }
+    ]
+  },
+  "queues": {
+    "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336": {
+      "comments": [
+        {
+          "id": "cbcf65a5-c43d-4a08-9faa-6ca3b5500a78",
+          "queueId": "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336",
+          "path": "app/components/card.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Tree comment indicator",
+          "createdAt": "2026-10-15T03:26:15.083992676+00:00",
+          "updatedAt": "2026-10-15T03:26:15.083992676+00:00",
+          "anchor": {
+            "snapshotId": "431ddd70-1928-4659-af08-b44247ab6371",
+            "fingerprint": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+            "baseCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "headCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "fc5339de-45a6-4269-a42e-2936a58cb74e",
+          "queueId": "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Visible multi-file target",
+          "createdAt": "2026-10-15T03:28:36.065248153+00:00",
+          "updatedAt": "2026-10-15T03:28:36.065248153+00:00",
+          "anchor": {
+            "snapshotId": "431ddd70-1928-4659-af08-b44247ab6371",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "headCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "d7302c56-27cf-4111-b386-5279b8787cd7",
+          "queueId": "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336",
+          "path": "many/file0025.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary near-44 actual target",
+          "createdAt": "2026-10-15T03:28:46.599795973+00:00",
+          "updatedAt": "2026-10-15T03:28:46.599795973+00:00",
+          "anchor": {
+            "snapshotId": "431ddd70-1928-4659-af08-b44247ab6371",
+            "fingerprint": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+            "baseCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "headCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "25184863-f32e-49a2-b537-131524c65077",
+          "queueId": "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary near-46 actual target",
+          "createdAt": "2026-10-15T03:28:58.585513618+00:00",
+          "updatedAt": "2026-10-15T03:28:58.585513618+00:00",
+          "anchor": {
+            "snapshotId": "431ddd70-1928-4659-af08-b44247ab6371",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "headCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "2e3bc9a1-615b-43d7-bc57-4f3616d8e886",
+          "queueId": "3ace7faeedbb95266cc9d665c3c2d5044949908998b6ab026fade47f37a58336",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary return-45 actual target",
+          "createdAt": "2026-10-15T03:29:07.759645856+00:00",
+          "updatedAt": "2026-10-15T03:29:07.759645856+00:00",
+          "anchor": {
+            "snapshotId": "431ddd70-1928-4659-af08-b44247ab6371",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "headCommit": "99ab627c458a8ce5c36f634fa44bef5b690ed6c6",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        }
+      ],
+      "reviewed": {
+        "app/components/card.rs": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+        "many/file0025.rs": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+        "many/file0026.rs": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd"
+      }
+    }
+  },
+  "repositoryIds": {
+    "/tmp/peer-desktop-8ibf1oxm/repo": "8fdb238b2d276cb355a0b377ee691e1756b92011928eeaf8002199398c97dec7"
+  },
+  "themes": []
+}

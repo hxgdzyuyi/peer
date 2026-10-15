@@ -643,6 +643,12 @@ impl DiffState {
     pub(crate) fn set_content_width(&mut self, width: Pixels) {
         self.content_width = width;
     }
+    pub(crate) fn readable_file(&self) -> Option<usize> {
+        self.geometry
+            .borrow()
+            .visible_file(self.row_height.unwrap_or(px(1.)))
+    }
+
     /// Capture after the virtual list has laid out and clamped its offset. All
     /// scrolling sources (including ListState commands and scrollbars) converge
     /// here. Deferred publication cannot apply an older frame to replaced files
@@ -650,9 +656,10 @@ impl DiffState {
     pub(crate) fn observe_viewport(&mut self, cx: &mut Context<Self>) {
         let offset = self.list.logical_scroll_top();
         let Some(path) = self
-            .rows
-            .get(offset.item_ix)
-            .and_then(|row| self.files.get(row.file()))
+            .geometry
+            .borrow()
+            .visible_file(self.row_height.unwrap_or(px(1.)))
+            .and_then(|file| self.files.get(file))
             .map(|file| file.path().clone())
         else {
             return;
@@ -660,6 +667,9 @@ impl DiffState {
         let observed = (offset.item_ix, offset.offset_in_item, path.clone());
         let changed = self.observed_viewport.as_ref() != Some(&observed);
         self.observed_viewport = Some(observed.clone());
+        if changed {
+            cx.notify();
+        }
         if !self.viewport_follow.get() || !changed {
             return;
         }
@@ -690,11 +700,20 @@ impl DiffState {
     /// Subscribers may run after another queued effect replaced the source or
     /// explicitly selected a file. Revalidate at the application boundary too.
     pub fn viewport_file_is_current(&self, path: &str) -> bool {
+        let offset = self.list.logical_scroll_top();
         self.viewport_follow.get()
             && self
-                .rows
-                .get(self.list.logical_scroll_top().item_ix)
-                .and_then(|row| self.files.get(row.file()))
+                .observed_viewport
+                .as_ref()
+                .is_some_and(|(row, y, observed)| {
+                    (*row, *y) == (offset.item_ix, offset.offset_in_item)
+                        && observed.as_str() == path
+                })
+            && self
+                .geometry
+                .borrow()
+                .visible_file(self.row_height.unwrap_or(px(1.)))
+                .and_then(|file| self.files.get(file))
                 .is_some_and(|file| file.path().as_str() == path)
     }
 

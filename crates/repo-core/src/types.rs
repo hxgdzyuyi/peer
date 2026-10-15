@@ -218,6 +218,7 @@ pub struct Preferences {
     pub show_whitespace: bool,
     pub code_font_size: u32,
     pub diff_layout: String,
+    pub all_files: bool,
     pub git_executable: Option<String>,
     pub language_servers: Vec<crate::navigation::LanguageServer>,
 }
@@ -233,6 +234,7 @@ impl Default for Preferences {
             show_whitespace: false,
             code_font_size: 12,
             diff_layout: "unified".into(),
+            all_files: true,
             git_executable: None,
             language_servers: crate::navigation::default_servers(),
         }

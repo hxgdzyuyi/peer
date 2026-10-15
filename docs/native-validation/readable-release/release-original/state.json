@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "nativeState": {
+    "draft-v2:9a4e97daffd29cbf146e41b655e506d9a812fafea23be1eae02e2cdcb330fb7a:app/main.rs": {
+      "body": "",
+      "fingerprint": "b77bb30320ef3ac6451158e9da6f17c045d808bad87c7d8c50cfd0e2d9e44e19",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358:app/main.rs": {
+      "body": "",
+      "fingerprint": "7dfa00b47b2c6e149d08ec6f634b6a927b34c1e470e496ea6e38a3825b80cdaf",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358:config/app.json": {
+      "body": "new draft during edit save",
+      "fingerprint": "97d875a15021c7606fafbc7c22cc115b4284d2b102e6e5870ce44eb2d8b50565",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358:workspace/components/panels/review/very_long_path_for_full_draft_target.rs": {
+      "body": "",
+      "fingerprint": "a18370ce949f640f9d6626303bd2be86e1a2ea2fa820cb9a6920c2df68cd4617",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    }
+  },
+  "preferences": {
+    "sidebarWidths": {
+      "files": 244,
+      "feedback": 310
+    },
+    "appearance": {
+      "mode": "system",
+      "lightTheme": "github-light",
+      "darkTheme": "github-dark"
+    },
+    "recentRepositories": [
+      "/tmp/peer-native-smoke-laeblbkd/repository"
+    ],
+    "lastRepository": "/tmp/peer-native-smoke-laeblbkd/repository",
+    "sessions": {
+      "/tmp/peer-native-smoke-laeblbkd/repository": {
+        "comparison": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        },
+        "selectedPath": "workspace/components/panels/review/very_long_path_for_full_draft_target.rs",
+        "scrollTop": 0.0,
+        "lastChanges": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        }
+      }
+    },
+    "tabWidth": 4,
+    "showWhitespace": false,
+    "codeFontSize": 12,
+    "diffLayout": "unified",
+    "allFiles": true,
+    "gitExecutable": null,
+    "languageServers": [
+      {
+        "id": "go",
+        "name": "Go (gopls)",
+        "enabled": true,
+        "languages": {
+          "go": "go"
+        },
+        "executable": "gopls",
+        "args": [],
+        "rootMarkers": [
+          "go.work",
+          "go.mod"
+        ],
+        "env": {
+          "GOFLAGS": "-mod=readonly",
+          "GOPROXY": "off",
+          "GOTOOLCHAIN": "local"
+        },
+        "initializationOptions": {},
+        "settings": {
+          "gopls": {
+            "staticcheck": false
+          }
+        }
+      },
+      {
+        "id": "typescript",
+        "name": "TypeScript / JavaScript",
+        "enabled": true,
+        "languages": {
+          "cjs": "javascript",
+          "cts": "typescript",
+          "js": "javascript",
+          "jsx": "javascriptreact",
+          "mjs": "javascript",
+          "mts": "typescript",
+          "ts": "typescript",
+          "tsx": "typescriptreact"
+        },
+        "executable": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "package.json",
+          "tsconfig.json",
+          "jsconfig.json"
+        ],
+        "env": {},
+        "initializationOptions": {
+          "disableAutomaticTypingAcquisition": true,
+          "tsserver": {
+            "useSyntaxServer": "never"
+          }
+        },
+        "settings": {}
+      },
+      {
+        "id": "python",
+        "name": "Python (Pyright)",
+        "enabled": true,
+        "languages": {
+          "py": "python",
+          "pyi": "python"
+        },
+        "executable": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "pyrightconfig.json",
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "requirements.txt",
+          "Pipfile"
+        ],
+        "env": {},
+        "initializationOptions": {},
+        "settings": {
+          "python": {
+            "analysis": {
+              "autoSearchPaths": true
+            }
+          }
+        }
+      },
+      {
+        "id": "rust",
+        "name": "Rust (rust-analyzer)",
+        "enabled": true,
+        "languages": {
+          "rs": "rust"
+        },
+        "executable": "rust-analyzer",
+        "args": [],
+        "rootMarkers": [
+          "Cargo.toml",
+          "rust-project.json"
+        ],
+        "env": {
+          "CARGO_NET_OFFLINE": "true"
+        },
+        "initializationOptions": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        },
+        "settings": {
+          "rust-analyzer": {
+            "cargo": {
+              "buildScripts": {
+                "enable": false
+              }
+            },
+            "procMacro": {
+              "enable": false
+            },
+            "checkOnSave": false
+          }
+        }
+      }
+    ]
+  },
+  "queues": {
+    "9a4e97daffd29cbf146e41b655e506d9a812fafea23be1eae02e2cdcb330fb7a": {
+      "comments": [],
+      "reviewed": {}
+    },
+    "a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358": {
+      "comments": [
+        {
+          "id": "c7b31345-96ec-4444-ad6e-94a6418198a8",
+          "queueId": "a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358",
+          "path": "config/app.json",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "edited config comment",
+          "createdAt": "2026-10-15T03:23:00.441397497+00:00",
+          "updatedAt": "2026-10-15T03:23:39.566159181+00:00",
+          "anchor": {
+            "snapshotId": "1a5a8de1-f2dd-410e-a0a0-1432df36f964",
+            "fingerprint": "97d875a15021c7606fafbc7c22cc115b4284d2b102e6e5870ce44eb2d8b50565",
+            "baseCommit": "90e061dcca120805b0e23268aec786c9d1fe729f",
+            "headCommit": "90e061dcca120805b0e23268aec786c9d1fe729f",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": true
+        },
+        {
+          "id": "c55ec8b6-9966-4866-b322-972b58b401f8",
+          "queueId": "a5074bf5fe06c7e9c576707cd027b47b5b8f4dcdf731cddc2874293da0f9e358",
+          "path": "config/app.json",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "independent new draft",
+          "createdAt": "2026-10-15T03:23:23.161631092+00:00",
+          "updatedAt": "2026-10-15T03:23:23.161631092+00:00",
+          "anchor": {
+            "snapshotId": "1a5a8de1-f2dd-410e-a0a0-1432df36f964",
+            "fingerprint": "97d875a15021c7606fafbc7c22cc115b4284d2b102e6e5870ce44eb2d8b50565",
+            "baseCommit": "90e061dcca120805b0e23268aec786c9d1fe729f",
+            "headCommit": "90e061dcca120805b0e23268aec786c9d1fe729f",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": true
+        }
+      ],
+      "reviewed": {}
+    }
+  },
+  "repositoryIds": {
+    "/tmp/peer-native-smoke-laeblbkd/repository": "ea8b5fe1d4191c49044b69099befafe5afab7b22087cea3886676e69ce06554a"
+  },
+  "themes": []
+}

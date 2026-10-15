@@ -6,6 +6,7 @@ Requires xdotool, ImageMagick, tesseract, Git and a running desktop portal.
 import csv
 import io
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -19,7 +20,7 @@ out = Path(sys.argv[2]).resolve(); out.mkdir(parents=True, exist_ok=True)
 (out / 'result.json').unlink(missing_ok=True)
 work = tempfile.TemporaryDirectory(prefix='peer-desktop-')
 base = Path(work.name); root = base / 'repo'; root.mkdir(); store = base / 'store'
-checks = []; process = None
+checks = []; observations = []; process = None
 log = (out / 'window.log').open('w')
 def run(*args): return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL)
 def git(*args): return run('git', '-C', str(root), *args)
@@ -104,14 +105,14 @@ def central_file():
     crop=out/'center-source-crop.png'
     run('convert',str(out/'center-source.png'),'-crop','870x644+250+144','-resize','300%',str(crop))
     value=run('tesseract',str(crop),'stdout','--psm','6').lower()
-    match=re.search(r'many/file([0-9o]{4})\.rs|source\s+([0-9]+)',value)
-    assert match, 'No central file header in pixels: '+value
-    number=int(match[1].replace('o','0') if match[1] else match[2])
+    match=re.search(r'source\s+([0-9]+)',value)
+    assert match, 'No central source token in pixels: '+value
+    number=int(match[1])
     return f'many/file{number:04}.rs'
 def selected():return state().get('preferences',{}).get('sessions',{}).get(str(root),{}).get('selectedPath')
 def choose(query):
-    enter(100,142,query);key('Return');wait('selected-'+query,lambda: selected()==query)
-def clear_filter():click(100,142);key('ctrl+a');key('BackSpace');key('Tab');time.sleep(.5)
+    enter(100,168,query);key('Return');wait('selected-'+query,lambda: selected()==query)
+def clear_filter():click(100,168);key('ctrl+a');key('BackSpace');key('Tab');time.sleep(.5)
 if os.getenv('PEER_TREE_BASELINE'):
     process=subprocess.Popen([os.environ['PEER_TREE_BASELINE'],str(root)],env={**os.environ,'PEER_DATA_DIR':str(base/'baseline-store')},stdout=log,stderr=log)
     time.sleep(3)
@@ -126,63 +127,91 @@ try:
         except (subprocess.CalledProcessError,IndexError):return None
     wait('native-window',find_peer);peer_window=find_peer()
     run('xprop','-id',peer_window,'-f','_MOTIF_WM_HINTS','32c','-set','_MOTIF_WM_HINTS','2, 0, 0, 0, 0')
+    (out/'process.json').write_text(json.dumps({'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'executable':os.readlink(f'/proc/{process.pid}/exe')},indent=2))
     run('xdotool','windowmove',peer_window,'0','0','windowsize',peer_window,'1440','900','windowfocus','--sync',peer_window)
     run('wmctrl','-i','-r',hex(int(peer_window)),'-b','add,fullscreen');run('wmctrl','-i','-a',hex(int(peer_window)));time.sleep(1)
     if os.getenv('PEER_TREE_RECORD'):
         recorder=subprocess.Popen(['ffmpeg','-y','-f','x11grab','-video_size','1440x900','-framerate','15','-i',os.environ['DISPLAY'],'-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-movflags','+faststart',str(out/'tree-interaction.mp4')],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=(out/'recording.log').open('w'))
-    if not os.getenv('PEER_TREE_WHEEL_ONLY'):
+    if os.getenv('PEER_TREE_BOUNDARY_ONLY'):
+        choose('app/components/card.rs');clear_filter()
+        click(400,235);enter(1200,240,'Tree comment indicator');click(1200,340);click(1200,140);time.sleep(.7)
+    if not os.getenv('PEER_TREE_WHEEL_ONLY') and not os.getenv('PEER_TREE_BOUNDARY_ONLY'):
         choose('app/components/card.rs');clear_filter();shot('01-rich-tree')
         wait('selected-tree-row-visible',lambda:'cardrs' in tree_text())
-        click(400,211);enter(1200,210,'Tree comment indicator');click(1200,310);click(1200,115);time.sleep(.7);shot('01b-comment-reviewed-icons')
+        click(400,235);enter(1200,240,'Tree comment indicator');click(1200,340);click(1200,140);time.sleep(.7);shot('01b-comment-reviewed-icons')
         # Collapse and use real four-way tree keyboard operations.
-        click(65,184);shot('02-collapsed-app');wait('folder-collapse-hides-descendants',lambda:'cardrs' not in tree_text())
-        key('Right');assert 'cardrs' in tree_text();checks.append('right-expands-directory')
+        click(65,208);shot('02-collapsed-app');wait('folder-collapse-hides-descendants',lambda:'cardrs' not in tree_text())
+        key('Right');wait('right-expands-directory',lambda:'cardrs' in tree_text())
         key('Right');key('Left');assert 'cardrs' not in tree_text();checks.append('left-collapses-child-directory')
         key('Right');key('Down')
         shot('03-keyboard-hierarchy')
         # Filtering is flat, shows full paths, and preserves collapsed unrelated folders.
-        click(65,184);assert 'cardrs' not in tree_text();checks.append('palette-starts-with-collapsed-ancestor')
+        click(65,208);assert 'cardrs' not in tree_text();checks.append('palette-starts-with-collapsed-ancestor')
         key('ctrl+p');text('very-long-unicode');wait('independent-go-to-file-visible',lambda:pixels_contain('Go to file'));shot('03b-go-to-file')
         key('Return');wait('palette-reveals-collapsed-deep-file',lambda:selected()==longpath);shot('03c-palette-revealed');assert 'cardrs' in tree_text()
         key('ctrl+p');text('many/');run('xdotool','key','--repeat','50','--delay','20','Down');shot('03d-palette-keyboard-scroll');key('Return');wait('palette-keyboard-opens-fiftieth-result',lambda:selected()=='many/file0050.rs')
-        choose(longpath);shot('04-full-path-filter');run('xdotool','mousemove','120','184');time.sleep(1.5);shot('04b-full-path-tooltip');clear_filter();shot('05-deep-revealed')
+        choose(longpath);shot('04-full-path-filter');run('xdotool','mousemove','120','208');time.sleep(1.5);shot('04b-full-path-tooltip');clear_filter();shot('05-deep-revealed')
         # Selection outside the tree must reveal a previously collapsed ancestor.
         run('xdotool','mousemove','100','220','click','4','click','4','click','4','click','4','click','4','click','4','click','4','click','4');time.sleep(.5)
-        click(60,184) # app folder
+        click(60,208) # app folder
         choose('docs/guide.md');clear_filter();click(1320,24)
         wait('back-restores-deep-file',lambda:selected()==longpath);shot('06-back-expanded')
         choose('many/file0999.rs');clear_filter();shot('07-last-file-revealed')
         key('ctrl+p');text('many/');key('Down');key('Escape');checks.append('palette-cancel-keeps-selection');assert selected()=='many/file0999.rs'
         wait('selected-row-visible',lambda:re.search(r'file[0o]999rs',tree_text()))
         run('xdotool','mousemove','238','820');time.sleep(.5);shot('07b-native-scrollbar')
-        run('xdotool','mousedown','1','mousemove','238','170','mouseup','1');time.sleep(.5)
+        run('xdotool','mousedown','1','mousemove','238','194','mouseup','1');time.sleep(.5)
         wait('scrollbar-drag-reaches-root',lambda:'components' in tree_text());shot('07c-scrollbar-drag')
         choose('many/file0999.rs');clear_filter()
         # Parent and Home/End move keyboard focus and keep the selected row visible.
         click(110,820);key('Left');shot('08-parent-focused');key('Right');key('End')
         wait('keyboard-end-opens-last-file',lambda:selected()=='z-notes.txt');shot('09-keyboard-end');key('Up');wait('keyboard-up-opens-previous-file',lambda:selected()=='added.txt');key('Down');wait('keyboard-down-opens-next-file',lambda:selected()=='z-notes.txt')
     # Multi-file scrolling drives selection, without jumping the Diff back.
-    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'),timeout=180);before_scroll=selected();click(120,142)  # Keep the filter focused while the Diff scrolls.
-    # Stop on readable source: 45 detents leaves only a blank clipped tail of
-    # the preceding row, whose file cannot be determined from OCR alone.
-    run('xdotool','mousemove','800','400','click','--repeat','44','--delay','35','5');time.sleep(1)
+    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'),timeout=180);before_scroll=selected();click(120,168)  # Keep the filter focused while the Diff scrolls.
+    # Retain the reported 45-detent boundary: the preceding file has only a
+    # clipped background tail. Read the next actual source from center pixels.
+    run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','5');time.sleep(1)
     wait('multifile-wheel-updates-selected',lambda:selected()!=before_scroll and selected() is not None)
     shot('10-multifile-scroll-sync')
     active=central_file()
     wait('session-matches-independent-center',lambda:selected()==active)
+    observations.append({'step':'45-detents','source_path':active,'session_path':selected()})
     run('xdotool','type','--clearmodifiers','file002')
     shot('11-filter-focus-preserved');assert 'file002' in run('tesseract',str(out/'11-filter-focus-preserved.png'),'stdout');checks.append('scroll-keeps-filter-focus')
-    clear_filter();enter(1200,210,'Visible multi-file target');click(1200,310)
+    before_comments=[(c['path'],c['body']) for q in state()['queues'].values() for c in q['comments']]
+    before_reviewed={p for q in state()['queues'].values() for p in q['reviewed']}
+    clear_filter();enter(1200,240,'Visible multi-file target');click(1200,340)
     wait('comment-target-follows-visible-file',lambda:any(c['body']=='Visible multi-file target' and c['path']==active for q in state()['queues'].values() for c in q['comments']))
-    click(1200,116);wait('reviewed-target-follows-visible-file',lambda:any(active in q['reviewed'] for q in state()['queues'].values()))
-    click(120,142);run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','4');time.sleep(1)
+    click(1200,140);wait('reviewed-target-follows-visible-file',lambda:any(active in q['reviewed'] for q in state()['queues'].values()))
+    assert [(c['path'],c['body']) for q in state()['queues'].values() for c in q['comments']]==before_comments+[(active,'Visible multi-file target')]
+    assert {p for q in state()['queues'].values() for p in q['reviewed']}==before_reviewed^{active}
+    checks.append('45-detents-old-files-unchanged')
+    # Nearby one-detent inputs must also derive writes from readable source,
+    # not the preceding clipped row or the prior review identity.
+    for label, direction, repeats in [('near-44','4',1),('near-46','5',2),('return-45','4',1)]:
+        click(120,168)
+        run('xdotool','mousemove','800','400','click','--repeat',str(repeats),'--delay','35',direction)
+        time.sleep(1)
+        visible=central_file()
+        wait(label+'-session-matches-center',lambda:selected()==visible)
+        observations.append({'step':label,'source_path':visible,'session_path':selected()})
+        shot(label+'-source')
+        before_comments=[(c['path'],c['body']) for q in state()['queues'].values() for c in q['comments']]
+        before_reviewed={p for q in state()['queues'].values() for p in q['reviewed']}
+        body='Boundary '+label+' actual target'
+        enter(1200,240,body);click(1200,340)
+        wait(label+'-comment-exact-path-old-files-unchanged',lambda:[(c['path'],c['body']) for q in state()['queues'].values() for c in q['comments']]==before_comments+[(visible,body)])
+        click(1200,140)
+        wait(label+'-reviewed-exact-path-old-files-unchanged',lambda:{p for q in state()['queues'].values() for p in q['reviewed']}==before_reviewed^{visible})
+    (out/'state.json').write_text(json.dumps(state(),indent=2))
+    click(120,168);run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','4');time.sleep(1)
     wait('reverse-scroll-updates-active-file',lambda:selected()!=active);shot('12-reverse-scroll-sync')
 
     key('ctrl+q');process.wait(timeout=15);assert process.returncode==0
-    (out/'result.json').write_text(json.dumps({'passed':checks,'files':1009,'method':'native keyboard/mouse + OCR + persistent state; screenshots visually inspected'},indent=2))
+    (out/'result.json').write_text(json.dumps({'passed':checks,'observations':observations,'files':1009,'method':'native keyboard/mouse + OCR + persistent state; screenshots visually inspected'},indent=2))
     print(json.dumps({'passed':len(checks)}))
 except Exception:
-    shot('failure');raise
+    shot('failure');(out/'failure-state.json').write_text(json.dumps(state(),indent=2));raise
 finally:
     if recorder is not None:recorder.communicate(b'q',timeout=30)
     if process is not None and process.poll() is None:process.terminate();process.wait(timeout=15)

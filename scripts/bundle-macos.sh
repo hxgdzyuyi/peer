@@ -8,7 +8,7 @@ bundle=target/release/bundle/Peer.app
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp target/release/peer "$bundle/Contents/MacOS/peer"
 cp assets/icons/icon.icns "$bundle/Contents/Resources/icon.icns"
-cp -R licenses "$bundle/Contents/Resources/licenses"
+cp -R licenses "$bundle/Contents/Resources/"
 cp THIRD_PARTY_NOTICES.md "$bundle/Contents/Resources/"
 version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 cat > "$bundle/Contents/Info.plist" <<PLIST
@@ -28,4 +28,18 @@ cat > "$bundle/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --sign - "$bundle"
 codesign --verify --deep --strict "$bundle"
-echo "$bundle"
+# Artifact services do not preserve executable modes when uploading a directory.
+# Upload an already verified archive, including the application directory itself.
+archive=target/release/bundle/Peer-native-macos.zip
+rm -f "$archive"
+ditto -c -k --sequesterRsrc --keepParent "$bundle" "$archive"
+python3 scripts/verify-macos-archive.py "$archive"
+verify_dir=$(mktemp -d "${TMPDIR:-/tmp}/peer-bundle-verify.XXXXXX")
+trap 'rm -rf "$verify_dir"' EXIT
+ditto -x -k "$archive" "$verify_dir"
+test -x "$verify_dir/Peer.app/Contents/MacOS/peer"
+cmp "$bundle/Contents/MacOS/peer" "$verify_dir/Peer.app/Contents/MacOS/peer"
+codesign --verify --deep --strict "$verify_dir/Peer.app"
+echo "Verified extracted Peer.app executable, identical bytes and strict signature"
+shasum -a 256 "$archive" "$verify_dir/Peer.app/Contents/MacOS/peer"
+echo "$archive"

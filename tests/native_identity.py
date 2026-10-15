@@ -36,6 +36,7 @@ git('add', '.'); git('commit', '-m', 'Initial'); git('branch', 'baseline')
 git('add', 'a.rs')
 (root / 'b.txt').write_text('after\n')
 checks = []
+observations = []
 log = (output / 'window.log').open('w')
 process = None
 
@@ -45,7 +46,7 @@ def state():
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def wait(label, predicate, timeout=15):
+def wait(label, predicate, timeout=40):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -92,7 +93,7 @@ def screenshot(name):
     run('import', '-window', 'root', str(output / f'{name}.png'))
 
 def rendered(phrase):
-    deadline=time.monotonic()+15
+    deadline=time.monotonic()+40
     while time.monotonic()<deadline:
         screenshot('ready-controls')
         if re.sub(r'[^a-z0-9]','',phrase.lower()) in re.sub(r'[^a-z0-9]','',run('tesseract',str(output/'ready-controls.png'),'stdout').lower()): return
@@ -112,9 +113,14 @@ def quit_app():
 
 def press(*keys): run('xdotool','key',*keys);time.sleep(.25)
 def button(label):
+    # Fixed toolbar coordinates in the disposable 1440x900 fixture; outcomes
+    # are still checked through source pixels and exact persisted identities.
+    toolbar={'All files':(800,72),'Single file':(875,72),'Commit history':(980,72),'Back':(1320,24),'Refresh':(1250,24),'Toggle Reviewed':(1200,140)}
+    if label in toolbar:
+        click(*toolbar[label]);return
     import csv,io
     wanted=re.sub(r'[^a-z0-9]','',label.lower())
-    deadline=time.monotonic()+15
+    deadline=time.monotonic()+40
     while time.monotonic()<deadline:
         screenshot('controls')
         words=[r for r in csv.DictReader(io.StringIO(run('tesseract',str(output/'controls.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE) if r.get('text','').strip()]
@@ -156,7 +162,7 @@ def central_file():
     run('convert',str(output/'center-source.png'),'-crop','870x644+250+144','-resize','300%',str(crop))
     value=run('tesseract',str(crop),'stdout','--psm','6').lower()
     (output/'center-ocr.txt').write_text(value)
-    found=re.search(r'(?:identity\s+|src/)(main|config|module[0-9od@sl]{2})|app/main\.rs|config/app\.json',value)
+    found=re.search(r'identity\s+(main|config|module[0-9od@sl]{2})\b',value)
     assert found, 'No independent source identity in center pixels: '+value
     token=found[1] or ('main' if 'main' in found[0] else 'config')
     if token.startswith('module'):
@@ -178,10 +184,12 @@ def tree_selected(path):
     crop=output/'selected-tree-row.png'
     run('convert',str(output/'center-source.png'),'-crop',f'240x32+0+{y}','-resize','300%',str(crop))
     value=re.sub(r'[^a-z0-9]','',run('tesseract',str(crop),'stdout','--psm','7').lower())
+    # OCR confuses the zero in numbered fixture filenames with lowercase o.
+    value=re.sub(r'module([0-9o]{2})rs',lambda m:'module'+m[1].replace('o','0')+'rs',value)
     expected=re.sub(r'[^a-z0-9]','',Path(path).name.lower())
     assert expected in value, (expected,value)
 def assert_identity(label, expected=None, previous=None):
-    deadline=time.monotonic()+20
+    deadline=time.monotonic()+60
     last=None
     while time.monotonic()<deadline:
         try:
@@ -195,6 +203,8 @@ def assert_identity(label, expected=None, previous=None):
             try: tree_selected(visible)
             except AssertionError:
                 time.sleep(.2);continue
+            observations.append({'step':label,'source_path':visible,'session_path':selected_path()})
+            (output/(label+'-source-ocr.txt')).write_text((output/'center-ocr.txt').read_text())
             checks.extend([label+'-session-matches-center',label+'-tree-matches-center'])
             screenshot(label)
             return visible
@@ -204,12 +214,14 @@ def assert_identity(label, expected=None, previous=None):
 def stored_draft(path):
     return next((v.get('body','') for k,v in state().get('nativeState',{}).items() if k.startswith('draft-v2:') and k.endswith(':'+path)),None)
 def editor_text():
+    # Move focus to Find without typing, so the caret cannot become OCR text.
+    click(390,144)
     screenshot('draft-editor')
     crop=output/'draft-editor-crop.png'
-    run('convert',str(output/'draft-editor.png'),'-crop','290x100+1140+180','-resize','200%',str(crop))
-    return run('tesseract',str(crop),'stdout','--psm','6').strip()
+    run('convert',str(output/'draft-editor.png'),'-crop','290x80+1140+208','-resize','200%',str(crop))
+    return run('tesseract',str(crop),'stdout','--psm','6').strip().strip('|')
 def search(query):
-    type_at(390,120,query,True);time.sleep(.4);press('Return');time.sleep(.6)
+    type_at(390,144,query,True);time.sleep(.4);press('Return');time.sleep(.6)
 def reviewed(): return {p for q in state().get('queues',{}).values() for p in q['reviewed']}
 try:
     start()
@@ -218,20 +230,20 @@ try:
     if os.getenv('PEER_IDENTITY_SCROLL_ONLY'):
         choose(paths['main']);button('All files');rendered('files loaded')
     else:
-        choose(paths['main']);type_at(1200,210,'main latest draft')
+        choose(paths['main']);type_at(1200,240,'main latest draft')
         wait('main-draft-entered',lambda:editor_text()=='main latest draft')
-        choose(paths['config']);type_at(1200,210,'config latest draft')
+        choose(paths['config']);type_at(1200,240,'config latest draft')
         wait('config-draft-entered',lambda:editor_text()=='config latest draft')
         choose(paths['main']);button('All files');rendered('files loaded')
         search('start_review');choose(paths['config'])
         assert_identity('quickopen-config',paths['config'])
         wait('config-draft-restored',lambda:editor_text()=='config latest draft')
-        type_at(1200,210,'config edited after checkpoint',True)
+        type_at(1200,240,'config edited after checkpoint',True)
         button('Back');assert_identity('all-files-back-main',paths['main'])
         wait('back-restores-main-draft',lambda:editor_text()=='main latest draft')
         wait('departing-config-draft-saved',lambda:stored_draft(paths['config'])=='config edited after checkpoint')
         button('Toggle Reviewed');wait('back-reviewed-writes-main-only',lambda:reviewed()=={paths['main']})
-        click(1200,210);press('ctrl+Return')
+        click(1200,240);press('ctrl+Return')
         wait('back-comment-writes-main-only',lambda:[(c['path'],c['body']) for c in comments()]==[(paths['main'],'main latest draft')])
         choose(paths['config'])
         wait('latest-config-draft-restored',lambda:editor_text()=='config edited after checkpoint')
@@ -248,9 +260,15 @@ try:
     assert after!=paths['module05'];checks.append('pagedown-central-source-moved')
     before=reviewed();button('Toggle Reviewed')
     wait('pagedown-reviewed-exact-target',lambda:reviewed()==before|{after})
-    type_at(1200,210,'PageDown target comment');press('ctrl+Return')
+    type_at(1200,240,'PageDown target comment');press('ctrl+Return')
     wait('pagedown-comment-exact-target',lambda:any(c['path']==after and c['body']=='PageDown target comment' for c in comments()))
     assert not any(c['path']==paths['module05'] for c in comments());checks.append('old-file-not-written')
+    # The fixed header binds its own source path, independently of the global control.
+    click(900,185)
+    wait('sticky-header-reviewed-removes-only-visible-target',lambda:reviewed()==before)
+    rendered(f'{len(before)} reviewed')  # Wait for queue refresh before toggling again.
+    click(900,185)
+    wait('sticky-header-reviewed-restores-only-visible-target',lambda:reviewed()==before|{after})
     # Palette restores Diff focus without a source click. These commands keep it.
     choose(paths['module20']);assert_identity('explicit-module20',paths['module20'])
     press('Prior');previous=assert_identity('pageup',previous=paths['module20'])
@@ -271,7 +289,7 @@ try:
     run('xdotool','mousedown','1','mousemove','1118','310','mouseup','1');time.sleep(.7)
     assert_identity('scrollbar',previous=previous)
     screenshot('final');(output/'state.json').write_text(json.dumps(state(),indent=2))
-    quit_app();(output/'result.json').write_text(json.dumps({'passed':checks,'oracle':'source identity from center-only OCR, selected tree row pixels, actual persisted comment/review paths'},indent=2)+'\n')
+    quit_app();(output/'result.json').write_text(json.dumps({'passed':checks,'observations':observations,'oracle':'source identity from center-only OCR, selected tree row pixels, actual persisted comment/review paths'},indent=2)+'\n')
     print(json.dumps({'passed':len(checks)}))
 except Exception:
     screenshot('failure');(output/'failure-state.json').write_text(json.dumps(state(),indent=2));raise

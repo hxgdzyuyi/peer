@@ -1,5 +1,8 @@
 # Review safety and workflow parity follow-up
 
+See [the subsequent readable-viewport and UI follow-up](NATIVE-READABLE-FOLLOWUP.md)
+for the 45-detent boundary, independent editors, file controls and archive checks.
+
 The later independent acceptance found two All-files review-target errors that
 these historical results missed. See [the identity follow-up](NATIVE-IDENTITY-FOLLOWUP.md)
 for the repair, independent center-pixel assertions, and new execution evidence.

@@ -13,3 +13,10 @@ use native selection colors and exact source copying; replacement selection gest
 clear them. `select_source_bytes` restores an LSP range after explicit large-source
 loading, and `counterpart_position` maps only unchanged lines between versions.
 See `docs/NATIVE-PARITY-FOLLOWUP.md` for actual window and clipboard regressions.
+
+The identity/readability follow-ups observe the final laid-out source font bands
+and labels for every scroll source, with generation/offset guards and explicit
+selection priority. Peer can supply a fixed file header without including it in
+the viewport identity geometry. See `docs/NATIVE-IDENTITY-FOLLOWUP.md` and
+`docs/NATIVE-READABLE-FOLLOWUP.md` for independent center-source window assertions,
+the retained 45-detent boundary and nearby 44/46 cases.

@@ -131,6 +131,28 @@ struct SavedView {
 }
 
 impl SavedView {
+    fn after_submission(&self, submitted: &Self, restored: &Self) -> Option<Self> {
+        if self.same_draft(submitted) {
+            return Some(restored.clone());
+        }
+        if submitted.editing.is_none()
+            && self
+                .pending_new
+                .as_deref()
+                .is_some_and(|v| v.same_draft(submitted))
+        {
+            let mut next = self.clone();
+            next.pending_new = Some(Box::new(restored.clone()));
+            return Some(next);
+        }
+        if submitted.editing.is_some()
+            && self.editing == submitted.editing
+            && self.body == submitted.body
+        {
+            return Some(self.pending_new.as_deref().cloned().unwrap_or_default());
+        }
+        None
+    }
     fn same_draft(&self, other: &Self) -> bool {
         self.body == other.body
             && self.side == other.side
@@ -187,6 +209,7 @@ pub struct Workspace {
     content: Option<Arc<FileContent>>,
     queue: ReviewQueue,
     all_files: bool,
+    pending_all_files: bool,
     loaded_files: BTreeMap<String, Arc<FileContent>>,
     diff: Entity<DiffState>,
     path: Entity<InputState>,
@@ -196,6 +219,7 @@ pub struct Workspace {
     line: Entity<InputState>,
     column: Entity<InputState>,
     comment: Entity<TextareaState>,
+    edit_comment: Entity<TextareaState>,
     settings: Entity<TextareaState>,
     settings_form: Option<settings::SettingsForm>,
     focus: FocusHandle,
@@ -228,6 +252,8 @@ pub struct Workspace {
     commits: Vec<Commit>,
     more_commits: bool,
     history_visible: bool,
+    history_panel_bounds: Option<Bounds<Pixels>>,
+    history_trigger_bounds: Option<Bounds<Pixels>>,
     commits_loading: bool,
     branches_visible: bool,
     search_query: String,
@@ -369,6 +395,7 @@ impl Workspace {
         let line = input("Line", window, cx);
         let column = input("UTF-16 column (0-based)", window, cx);
         let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Review comment"));
+        let edit_comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Edit comment"));
         let settings = cx.new(|cx| TextareaState::new(window, cx).placeholder("Preferences JSON"));
         let diff = cx.new(|cx| {
             DiffState::new([], cx).with_mode(if preferences.diff_layout == "split" {
@@ -398,6 +425,7 @@ impl Workspace {
             content: None,
             queue: ReviewQueue::default(),
             all_files: false,
+            pending_all_files: false,
             loaded_files: BTreeMap::new(),
             diff,
             path,
@@ -407,6 +435,7 @@ impl Workspace {
             line,
             column,
             comment,
+            edit_comment,
             settings,
             focus: cx.focus_handle(),
             subscriptions,
@@ -438,6 +467,8 @@ impl Workspace {
             commits: vec![],
             more_commits: false,
             history_visible: false,
+            history_panel_bounds: None,
+            history_trigger_bounds: None,
             commits_loading: false,
             branches_visible: false,
             search_query: String::new(),
@@ -469,6 +500,11 @@ impl Workspace {
                 _ => {}
             },
         ));
+        // Diff is RenderOnce around retained state. Observe it so post-layout
+        // geometry and background presentation updates rebuild its headers too,
+        // including explicit Back/Find moves that intentionally keep identity.
+        this.subscriptions
+            .push(cx.observe(&this.diff, |_, _, cx| cx.notify()));
         this.subscriptions.push(cx.subscribe_in(
             &this.diff.clone(),
             window,
@@ -537,6 +573,21 @@ impl Workspace {
         ));
         this.subscriptions.push(cx.subscribe_in(
             &this.comment.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(
+                    event,
+                    InputEvent::PressEnter {
+                        secondary: true,
+                        ..
+                    }
+                ) {
+                    this.save_new_comment(window, cx);
+                }
+            },
+        ));
+        this.subscriptions.push(cx.subscribe_in(
+            &this.edit_comment.clone(),
             window,
             |this, _, event: &InputEvent, window, cx| {
                 if matches!(
@@ -670,13 +721,21 @@ impl Workspace {
         })
     }
     fn comment_view(&self, cx: &App) -> SavedView {
+        let mut pending_new = self.pending_new.clone();
+        if let Some(view) = pending_new.as_mut() {
+            view.body = self.comment.read(cx).value().to_string();
+        }
         SavedView {
-            body: self.comment.read(cx).value().to_string(),
+            body: if self.editing.is_some() {
+                self.edit_comment.read(cx).value().to_string()
+            } else {
+                self.comment.read(cx).value().to_string()
+            },
             fingerprint: self
                 .comment_fingerprint
                 .clone()
                 .or_else(|| self.content.as_ref().map(|f| f.fingerprint.clone())),
-            pending_new: self.pending_new.clone(),
+            pending_new,
             side: self.comment_anchor.as_ref().map(|a| side(a.side()).into()),
             line: self.comment_anchor.as_ref().map(|a| a.line()),
             editing: self.editing.clone(),
@@ -710,11 +769,27 @@ impl Workspace {
         self.comment_fingerprint = view.fingerprint;
         self.editing = view.editing;
         self.pending_new = view.pending_new;
-        self.comment
-            .update(cx, |s, cx| s.set_value(view.body, window, cx));
+        if self.editing.is_some() {
+            self.edit_comment
+                .update(cx, |s, cx| s.set_value(view.body, window, cx));
+            let body = self
+                .pending_new
+                .as_ref()
+                .map(|v| v.body.clone())
+                .unwrap_or_default();
+            self.comment
+                .update(cx, |s, cx| s.set_value(body, window, cx));
+        } else {
+            self.comment
+                .update(cx, |s, cx| s.set_value(view.body, window, cx));
+        }
     }
     fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let view = self.pending_new.take().map(|v| *v).unwrap_or_default();
+        let view = self
+            .comment_view(cx)
+            .pending_new
+            .map(|v| *v)
+            .unwrap_or_default();
         self.restore_comment(view, window, cx);
         self.remember(cx);
         cx.notify();
@@ -728,8 +803,10 @@ impl Workspace {
         if self.navigation_file.is_some() || self.loading {
             return;
         }
-        if self.editing.is_some() {
-            self.cancel_edit(window, cx);
+        if let Some(pending) = &mut self.pending_new {
+            pending.side = position.as_ref().map(|a| side(a.side()).into());
+            pending.line = position.as_ref().map(|a| a.line());
+            pending.fingerprint = self.content.as_ref().map(|f| f.fingerprint.clone());
         }
         self.error = None;
         self.comment_anchor = position;
@@ -781,6 +858,7 @@ impl Workspace {
         // Preserve UI transition order even when Tokio schedules later writes
         // first. Every file's draft is retained; only chaining session writes
         // avoids an older selectedPath overwriting the restored identity.
+        let all_files_preference = self.preferences.all_files;
         let previous_saves = std::mem::take(&mut self.pending_saves);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_saves.push(self.runtime.spawn(async move {
@@ -789,6 +867,7 @@ impl Workspace {
             }
             let _guard = gate.lock().await;
             let result = core.store.update(|data| {
+                data.preferences.all_files = all_files_preference;
                 let legacy_top = data
                     .preferences
                     .sessions
@@ -871,8 +950,12 @@ impl Workspace {
         let core = self.core.clone();
         let gate = self.gate.clone();
         let clock = self.epoch.clone();
+        let saves = std::mem::take(&mut self.pending_saves);
         self.task(
             async move {
+                for save in saves {
+                    save.await.map_err(|e| e.to_string())??;
+                }
                 let _guard = gate.lock().await;
                 if clock.load(Ordering::SeqCst) != epoch {
                     return Ok(None);
@@ -922,6 +1005,8 @@ impl Workspace {
                     this.branches = branches;
                     this.commits.clear();
                     this.pending_comparison = Some(snapshot.comparison.clone());
+                    this.pending_all_files =
+                        this.preferences.all_files && snapshot.comparison.view == "changes";
                     this.snapshot = Some(snapshot);
                     this.apply_theme(window, cx);
                     let first = this
@@ -1208,6 +1293,10 @@ impl Workspace {
                     this.anchor = Some(position);
                 }
                 this.remember(cx);
+                if this.pending_all_files {
+                    this.pending_all_files = false;
+                    this.load_all(window, cx);
+                }
             },
         );
         cx.notify();
@@ -1314,19 +1403,31 @@ impl Workspace {
         );
     }
     fn save_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_comment_kind(self.editing.is_some(), window, cx);
+    }
+    fn save_new_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_comment_kind(false, window, cx);
+    }
+    fn save_comment_kind(&mut self, edit: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.feedback_pending || self.loading || self.navigation_file.is_some() {
             return;
         }
         let (Some(snapshot), Some(content)) = (&self.snapshot, &self.content) else {
             return;
         };
-        let body = self.comment.read(cx).value().to_string();
+        let view = self.comment_view(cx);
+        let submitted = if !edit && self.editing.is_some() {
+            view.pending_new.as_deref().cloned().unwrap_or_default()
+        } else {
+            view
+        };
+        let body = submitted.body.clone();
         if body.trim().is_empty() {
             return;
         }
-        if self.editing.is_none()
-            && self
-                .comment_fingerprint
+        if submitted.editing.is_none()
+            && submitted
+                .fingerprint
                 .as_ref()
                 .is_some_and(|fp| fp != &content.fingerprint)
         {
@@ -1338,14 +1439,17 @@ impl Workspace {
             return;
         }
         let queue = snapshot.queue_id.clone();
-        let editing = self.editing.clone();
+        let editing = submitted.editing.clone();
         let restored = if editing.is_some() {
-            self.pending_new.as_deref().cloned().unwrap_or_default()
+            submitted
+                .pending_new
+                .as_deref()
+                .cloned()
+                .unwrap_or_default()
         } else {
             SavedView::default()
         };
         let persisted = restored.clone();
-        let submitted = self.comment_view(cx);
         let persisted_submission = submitted.clone();
         let key = self.draft_key();
         let generation = self.file_epoch;
@@ -1357,9 +1461,9 @@ impl Workspace {
             side: if snapshot.comparison.view == "code" {
                 None
             } else {
-                self.comment_anchor.as_ref().map(|a| side(a.side()).into())
+                submitted.side.clone()
             },
-            line: self.comment_anchor.as_ref().map(|a| a.line() as u32),
+            line: submitted.line.map(|line| line as u32),
         };
         let core = self.core.clone();
         let gate = self.gate.clone();
@@ -1376,15 +1480,18 @@ impl Workspace {
                     }
                     core.store.update(|d| {
                         if let Some(key) = saved_key {
-                            let unchanged = d
+                            let current = d
                                 .native_state
                                 .get(&key)
-                                .and_then(|v| serde_json::from_value::<SavedView>(v.clone()).ok())
-                                .is_none_or(|v| v.same_draft(&persisted_submission));
-                            if unchanged {
+                                .and_then(|v| serde_json::from_value::<SavedView>(v.clone()).ok());
+                            let next = current.map_or_else(
+                                || Some(persisted.clone()),
+                                |v| v.after_submission(&persisted_submission, &persisted),
+                            );
+                            if let Some(next) = next {
                                 d.native_state.insert(
                                     key,
-                                    serde_json::to_value(persisted).map_err(|e| e.to_string())?,
+                                    serde_json::to_value(next).map_err(|e| e.to_string())?,
                                 );
                             }
                         }
@@ -1402,18 +1509,22 @@ impl Workspace {
                     return;
                 }
                 if let Some(key) = &key {
-                    if this
-                        .saved_views
-                        .get(key)
-                        .is_none_or(|v| v.same_draft(&submitted))
-                    {
-                        this.saved_views.insert(key.clone(), restored.clone());
+                    let next = this.saved_views.get(key).map_or_else(
+                        || Some(restored.clone()),
+                        |v| v.after_submission(&submitted, &restored),
+                    );
+                    if let Some(next) = next {
+                        this.saved_views.insert(key.clone(), next);
                     }
                 }
-                // Never clear text typed while the asynchronous save was in flight.
-                if this.draft_key() == key && this.comment_view(cx).same_draft(&submitted) {
-                    this.restore_comment(restored.clone(), window, cx);
-                    this.remember(cx);
+                if this.draft_key() == key {
+                    if let Some(next) = this
+                        .comment_view(cx)
+                        .after_submission(&submitted, &restored)
+                    {
+                        this.restore_comment(next, window, cx);
+                        this.remember(cx);
+                    }
                 }
                 if this.file_epoch == generation {
                     this.remember(cx);
@@ -1431,18 +1542,17 @@ impl Workspace {
                         let _guard = gate.lock().await;
                         core.store.update(|data| {
                             if let Some(key) = key {
-                                let unchanged = data
+                                if let Some(next) = data
                                     .native_state
                                     .get(&key)
                                     .and_then(|v| {
                                         serde_json::from_value::<SavedView>(v.clone()).ok()
                                     })
-                                    .is_some_and(|v| v.same_draft(&submitted));
-                                if unchanged {
+                                    .and_then(|v| v.after_submission(&submitted, &restored))
+                                {
                                     data.native_state.insert(
                                         key,
-                                        serde_json::to_value(restored)
-                                            .map_err(|e| e.to_string())?,
+                                        serde_json::to_value(next).map_err(|e| e.to_string())?,
                                     );
                                 }
                             }
@@ -1550,7 +1660,20 @@ impl Workspace {
         );
     }
     fn reviewed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(snapshot), Some(content)) = (&self.snapshot, &self.content) else {
+        let Some(content) = &self.content else {
+            return;
+        };
+        let reviewed = self.queue.reviewed.get(&content.path) != Some(&content.fingerprint);
+        self.reviewed_file(content.clone(), reviewed, window, cx);
+    }
+    fn reviewed_file(
+        &mut self,
+        content: Arc<FileContent>,
+        reviewed: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(snapshot) = &self.snapshot else {
             return;
         };
         let (id, file, fingerprint) = (
@@ -1558,7 +1681,6 @@ impl Workspace {
             content.file_id.clone(),
             content.fingerprint.clone(),
         );
-        let reviewed = self.queue.reviewed.get(&content.path) != Some(&fingerprint);
         let core = self.core.clone();
         let gate = self.gate.clone();
         self.task(
@@ -2202,6 +2324,21 @@ impl Workspace {
         self.remember(cx);
         cx.notify();
     }
+    fn set_file_mode(&mut self, all: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.preferences.all_files = all;
+        self.pending_all_files = false;
+        self.remember(cx);
+        // Selecting the already active mode must not replace the Diff/history
+        // or launch a second batch read while the user starts Find/QuickOpen.
+        if all == self.all_files && !self.loading && self.navigation_file.is_none() {
+            return;
+        }
+        if all {
+            self.load_all(window, cx);
+        } else if let Some(id) = self.content.as_ref().map(|f| f.file_id.clone()) {
+            self.select(id, true, window, cx);
+        }
+    }
     fn load_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snapshot) = self.snapshot.clone() else {
             return;
@@ -2230,6 +2367,8 @@ impl Workspace {
             if this.epoch.load(Ordering::SeqCst)!=epoch||this.file_epoch!=generation{return;}
             this.loading=false;this.all_files=true;this.loaded_files=loaded;this.diff.update(cx,|s,cx|s.set_files(parsed,cx));
             if !this.content.as_ref().is_some_and(|f|this.loaded_files.contains_key(&f.path)){if let Some(path)=this.loaded_files.keys().next().cloned(){this.activate_loaded(&path,window,cx);}}
+            if let Some(path) = this.content.as_ref().map(|f| f.path.clone()) { this.diff.update(cx,|s,cx|s.scroll_to_file(&path,cx)); }
+            this.remember(cx);
             this.notice=format!("{} files loaded; {} deferred or outside the 32 MiB source budget. Select skipped files individually.",this.loaded_files.len(),skipped);
         });
     }
@@ -2359,6 +2498,57 @@ impl Workspace {
             },
         );
     }
+}
+
+// Bounds are measured in the same window coordinates as pointer events. Capture
+// dismisses even if a tree/input child consumes the event; the trigger keeps its
+// ordinary toggle behavior, and panel clicks keep selecting commits.
+fn history_region(trigger: bool, cx: &Context<Workspace>) -> AnyElement {
+    let entity = cx.entity();
+    let mouse_entity = entity.clone();
+    canvas(
+        move |bounds, _, cx| {
+            entity.update(cx, |this, _| {
+                if trigger {
+                    this.history_trigger_bounds = Some(bounds);
+                } else {
+                    this.history_panel_bounds = Some(bounds);
+                }
+            });
+        },
+        move |_, _, window, _| {
+            if trigger {
+                return;
+            }
+            // A descendant's opaque hitbox can exclude the root div from
+            // hover-based capture listeners. Outside dismissal is a window
+            // capture listener, with containment against actual painted bounds.
+            let entity = mouse_entity.clone();
+            window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
+                if phase != DispatchPhase::Capture || event.button != MouseButton::Left {
+                    return;
+                }
+                entity.update(cx, |this, cx| {
+                    if this.history_visible
+                        && !this
+                            .history_panel_bounds
+                            .is_some_and(|b| b.contains(&event.position))
+                        && !this
+                            .history_trigger_bounds
+                            .is_some_and(|b| b.contains(&event.position))
+                    {
+                        this.history_visible = false;
+                        cx.notify();
+                    }
+                });
+            });
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+    .into_any_element()
 }
 
 impl Render for Workspace {
@@ -2590,17 +2780,74 @@ impl Render for Workspace {
                         div()
                             .id(SharedString::from(format!("jump-{}", comment.id)))
                             .cursor_pointer()
-                            .child(format!(
-                                "{}{}{}",
-                                comment.path,
-                                position,
-                                if comment.outdated { " · OUTDATED" } else { "" }
-                            ))
+                            .whitespace_normal()
+                            .child(comment.path.clone())
                             .on_click(cx.listener(move |this, _, w, c| {
                                 this.jump_comment(jump.clone(), w, c)
                             })),
                     )
-                    .child(comment.body)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_xs()
+                            .child(if position.is_empty() {
+                                "File comment".to_string()
+                            } else {
+                                position.trim().to_string()
+                            })
+                            .when(comment.outdated, |row| {
+                                row.child(
+                                    div()
+                                        .px_1()
+                                        .border_1()
+                                        .border_color(cx.theme().warning)
+                                        .child("Outdated"),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!(
+                                "You · {}",
+                                comment
+                                    .created_at
+                                    .split('T')
+                                    .next()
+                                    .unwrap_or(&comment.created_at)
+                            )),
+                    )
+                    .when(self.editing.as_ref() != Some(&comment.id), |card| {
+                        card.child(comment.body.clone())
+                    })
+                    .when(self.editing.as_ref() == Some(&comment.id), |card| {
+                        card.child(div().text_xs().child("Edit comment"))
+                            .child(Textarea::new(&self.edit_comment).h(px(100.)))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .child(
+                                        Button::new("save-comment-edit")
+                                            .small()
+                                            .label("Save edit")
+                                            .disabled(self.feedback_pending)
+                                            .on_click(
+                                                cx.listener(|this, _, w, c| {
+                                                    this.save_comment(w, c)
+                                                }),
+                                            ),
+                                    )
+                                    .child(
+                                        Button::new("cancel-card-edit")
+                                            .small()
+                                            .label("Cancel edit")
+                                            .on_click(
+                                                cx.listener(|this, _, w, c| this.cancel_edit(w, c)),
+                                            ),
+                                    ),
+                            )
+                    })
                     .child(
                         h_flex()
                             .gap_1()
@@ -2614,10 +2861,10 @@ impl Render for Workspace {
                                                 Some(Box::new(this.comment_view(cx)));
                                         }
                                         this.editing = Some(edit.id.clone());
-                                        this.comment.update(cx, |s, cx| {
+                                        this.edit_comment.update(cx, |s, cx| {
                                             s.set_value(edit.body.clone(), window, cx)
                                         });
-                                        this.comment.update(cx, |s, cx| s.focus(window, cx));
+                                        this.edit_comment.update(cx, |s, cx| s.focus(window, cx));
                                         cx.notify();
                                     })),
                             )
@@ -2640,9 +2887,7 @@ impl Render for Workspace {
                     }),
             );
         }
-        let scope = if self.editing.is_some() {
-            "Editing saved comment (new draft preserved)".into()
-        } else if let Some(anchor) = &self.comment_anchor {
+        let scope = if let Some(anchor) = &self.comment_anchor {
             format!("Comment on {} line {}", side(anchor.side()), anchor.line())
         } else {
             "File comment".into()
@@ -2678,6 +2923,14 @@ impl Render for Workspace {
         }
         let weak = cx.entity().downgrade();
         let click_weak = weak.clone();
+        let header_weak = weak.clone();
+        let mut header_files = self.loaded_files.clone();
+        if let Some(content) = &self.content {
+            header_files.insert(content.path.clone(), content.clone());
+        }
+        let header_reviewed = self.queue.reviewed.clone();
+        let header_disabled = self.loading || self.navigation_file.is_some();
+
         let search_ranges = self
             .content
             .as_ref()
@@ -2702,6 +2955,59 @@ impl Render for Workspace {
             .unwrap_or_default();
         let viewer = Diff::new(&self.diff)
             .size_full()
+            .render_header_suffix(move |file, _, _| {
+                let content = header_files.get(file.path().as_str()).cloned();
+                let checked = content
+                    .as_ref()
+                    .is_some_and(|f| header_reviewed.get(&f.path) == Some(&f.fingerprint));
+                let disabled = header_disabled || content.is_none();
+                let review_content = content.clone();
+                let review_weak = header_weak.clone();
+                let comment_weak = header_weak.clone();
+                let path = file.path().to_string();
+                h_flex()
+                    .gap_2()
+                    .flex_shrink_0()
+                    .child(
+                        checkbox::Checkbox::new("file-reviewed")
+                            .label("Reviewed")
+                            .checked(checked)
+                            .disabled(disabled)
+                            .on_click(move |checked, window, cx| {
+                                if let Some(content) = &review_content {
+                                    let _ = review_weak.update(cx, |this, cx| {
+                                        this.diff.update(cx, |s, _| s.preserve_viewport_identity());
+                                        this.activate_loaded(&content.path, window, cx);
+                                        this.reviewed_file(content.clone(), *checked, window, cx);
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("comment-on-file")
+                            .small()
+                            .label("Comment on file")
+                            .disabled(disabled)
+                            .on_click(move |_, window, cx| {
+                                let _ = comment_weak.update(cx, |this, cx| {
+                                    this.diff.update(cx, |s, _| s.preserve_viewport_identity());
+                                    this.activate_loaded(&path, window, cx);
+                                    this.feedback_visible = true;
+                                    this.begin_comment(None, window, cx);
+                                });
+                            }),
+                    )
+            })
+            .sticky_header_path(
+                self.navigation_file
+                    .as_ref()
+                    .map(|f| SharedString::from(f.path.clone()))
+                    .or_else(|| {
+                        self.content
+                            .as_ref()
+                            .map(|f| SharedString::from(f.path.clone()))
+                    }),
+            )
             .annotations(annotations)
             .search_highlights(search_ranges)
             .render_annotation(move |annotation, _, _| {
@@ -3017,7 +3323,49 @@ impl Render for Workspace {
                 commits = commits.child(
                     Button::new(SharedString::from(commit.id.clone()))
                         .ghost()
-                        .label(format!("{} {}", commit.short_id, commit.subject))
+                        .h_auto()
+                        .w_full()
+                        .justify_start()
+                        .py_2()
+                        .accessibility_label(format!(
+                            "View commit {}: {}",
+                            commit.short_id, commit.subject
+                        ))
+                        .child(
+                            v_flex()
+                                .items_start()
+                                .gap_1()
+                                .child(div().whitespace_normal().child(format!(
+                                        "{}{}",
+                                        if self
+                                            .snapshot
+                                            .as_ref()
+                                            .and_then(|s| s.commit.as_ref())
+                                            .is_some_and(|c| c.id == commit.id)
+                                        {
+                                            "✓ "
+                                        } else {
+                                            ""
+                                        },
+                                        commit.subject
+                                    )))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .whitespace_normal()
+                                        .child(format!("{} · {}", commit.short_id, commit.author)),
+                                )
+                                .child(
+                                    div().text_xs().child(
+                                        commit
+                                            .committed_at
+                                            .split('T')
+                                            .next()
+                                            .unwrap_or(&commit.committed_at)
+                                            .to_string(),
+                                    ),
+                                ),
+                        )
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.reference
                                 .update(cx, |s, cx| s.set_value(commit.id.clone(), window, cx));
@@ -3025,37 +3373,28 @@ impl Render for Workspace {
                         })),
                 );
             }
-            sidebar = sidebar
-                .child(
-                    div()
-                        .id("commits")
-                        .h(px(240.))
-                        .overflow_y_scroll()
-                        .child(commits),
-                )
-                .child(
-                    Button::new("more")
-                        .label("Load older commits")
-                        .disabled(!self.more_commits || self.commits_loading)
-                        .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
-                );
+            sidebar = sidebar.child(
+                v_flex()
+                    .relative()
+                    .child(
+                        div()
+                            .id("commits")
+                            .h(px(240.))
+                            .overflow_y_scroll()
+                            .child(commits),
+                    )
+                    .child(
+                        Button::new("more")
+                            .label("Load older commits")
+                            .disabled(!self.more_commits || self.commits_loading)
+                            .on_click(cx.listener(|this, _, w, c| this.load_commits(w, c))),
+                    )
+                    .child(history_region(false, cx)),
+            );
         }
         let mut root = v_flex()
             .id("peer")
             .key_context("Peer")
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                    if this.history_visible
-                        && f32::from(event.position.x)
-                            > this.preferences.sidebar_widths.files as f32
-                        && f32::from(event.position.y) > 95.
-                    {
-                        this.history_visible = false;
-                        cx.notify();
-                    }
-                }),
-            )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if let Some((index, start, widths)) = this.resize_drag.clone() {
                     let delta = f32::from(event.position.x) - start;
@@ -3075,6 +3414,13 @@ impl Render for Workspace {
                     }
                 }),
             )
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if this.history_visible && event.keystroke.key == "escape" {
+                    this.history_visible = false;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_action(cx.listener(|this, _: &SaveComment, w, c| this.save_comment(w, c)))
             .track_focus(&self.focus)
             .size_full()
@@ -3160,6 +3506,11 @@ impl Render for Workspace {
                 }
                 if this.quick_visible {
                     this.close_palette(w, c);
+                    return;
+                }
+                if this.history_visible {
+                    this.history_visible = false;
+                    c.notify();
                     return;
                 }
                 if this.editing.is_some() {
@@ -3277,6 +3628,13 @@ impl Render for Workspace {
         ] {
             comparisons = comparisons.child(
                 Button::new(mode)
+                    .selected(self.snapshot.as_ref().is_some_and(|s| {
+                        if mode == "code" {
+                            s.comparison.view == "code"
+                        } else {
+                            s.comparison.view == "changes" && s.comparison.mode == mode
+                        }
+                    }))
                     .small()
                     .label(label)
                     .on_click(cx.listener(move |this, _, w, c| this.compare(mode, w, c))),
@@ -3287,12 +3645,18 @@ impl Render for Workspace {
                 .child(Input::new(&self.reference).w(px(180.)))
                 .child(
                     Button::new("branch")
+                        .selected(self.snapshot.as_ref().is_some_and(|s| {
+                            s.comparison.view == "changes" && s.comparison.mode == "branch"
+                        }))
                         .small()
                         .label("Compare branch")
                         .on_click(cx.listener(|this, _, w, c| this.compare("branch", w, c))),
                 )
                 .child(
                     Button::new("commit")
+                        .selected(self.snapshot.as_ref().is_some_and(|s| {
+                            s.comparison.view == "changes" && s.comparison.mode == "commit"
+                        }))
                         .small()
                         .label("Compare commit")
                         .on_click(cx.listener(|this, _, w, c| this.compare("commit", w, c))),
@@ -3301,19 +3665,32 @@ impl Render for Workspace {
                     Button::new("all-files")
                         .small()
                         .label("All files")
-                        .on_click(cx.listener(|this, _, w, c| this.load_all(w, c))),
+                        .selected(self.all_files)
+                        .on_click(cx.listener(|this, _, w, c| this.set_file_mode(true, w, c))),
                 )
                 .child(
-                    Button::new("history")
+                    Button::new("single-file")
                         .small()
-                        .label("Commit history")
-                        .on_click(cx.listener(|this, _, w, c| {
-                            this.history_visible = !this.history_visible;
-                            if this.history_visible && this.commits.is_empty() {
-                                this.load_commits(w, c);
-                            }
-                            c.notify();
-                        })),
+                        .label("Single file")
+                        .selected(!self.all_files)
+                        .on_click(cx.listener(|this, _, w, c| this.set_file_mode(false, w, c))),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            Button::new("history")
+                                .small()
+                                .label("Commit history")
+                                .on_click(cx.listener(|this, _, w, c| {
+                                    this.history_visible = !this.history_visible;
+                                    if this.history_visible && this.commits.is_empty() {
+                                        this.load_commits(w, c);
+                                    }
+                                    c.notify();
+                                })),
+                        )
+                        .child(history_region(true, cx)),
                 )
                 .child(
                     Button::new("resume-changes")
@@ -3351,6 +3728,39 @@ impl Render for Workspace {
                         })),
                 ),
         );
+        if let Some(snapshot) = &self.snapshot {
+            let additions: u64 = snapshot.files.iter().map(|f| f.additions).sum();
+            let deletions: u64 = snapshot.files.iter().map(|f| f.deletions).sum();
+            let mode = if snapshot.comparison.view == "code" {
+                "Code"
+            } else {
+                snapshot.comparison.mode.as_str()
+            };
+            let mut summary = format!(
+                "{} · {} · {} files · +{} −{}",
+                mode,
+                snapshot.repository.branch,
+                snapshot.files.len(),
+                additions,
+                deletions
+            );
+            if let Some(commit) = &snapshot.commit {
+                summary.push_str(&format!(
+                    " · {} · {} · {} · {}",
+                    commit.short_id,
+                    commit.subject,
+                    commit.author,
+                    commit
+                        .committed_at
+                        .split('T')
+                        .next()
+                        .unwrap_or(&commit.committed_at)
+                ));
+            } else if let Some(base) = &snapshot.comparison.base_ref {
+                summary.push_str(&format!(" · compared with {base}"));
+            }
+            root = root.child(div().px_2().h(px(24.)).text_xs().child(summary));
+        }
         if self.branches_visible {
             let mut branch_rows = h_flex().gap_1().flex_wrap();
             for branch in self.branches.clone() {
@@ -3411,9 +3821,10 @@ impl Render for Workspace {
                                 .on_click(cx.listener(|this, _, w, c| this.export(true, w, c))),
                         ),
                 )
-                .child(div().p_2().child(scope))
+                .child(v_flex().p_1().text_xs().whitespace_normal()
+                    .child(self.content.as_ref().map(|f| f.path.clone()).unwrap_or_else(|| "Select a file to comment".into()))
+                    .child(scope))
                 .child(Textarea::new(&self.comment).h(px(110.)))
-                .when(self.editing.is_some(), |panel| panel.child(Button::new("cancel-comment-edit").label("Cancel edit").on_click(cx.listener(|this,_,w,c| this.cancel_edit(w,c)))))
                 .when(!self.comment.read(cx).value().is_empty() && self.editing.is_none() && self.comment_fingerprint.as_ref().zip(self.content.as_ref()).is_some_and(|(fp,f)| fp != &f.fingerprint), |panel| panel.child(div().p_2().child("Draft source changed. Choose File scope or Line scope to confirm a new anchor before saving.")))
                 .child(
                     h_flex()
@@ -3429,7 +3840,7 @@ impl Render for Workspace {
                                         || self.content.is_none()
                                         || self.navigation_file.is_some(),
                                 )
-                                .on_click(cx.listener(|this, _, w, c| this.save_comment(w, c))),
+                                .on_click(cx.listener(|this, _, w, c| this.save_new_comment(w, c))),
                         )
                         .child(Button::new("file-comment").label("File scope").on_click(
                             cx.listener(|this, _, window, cx| {
@@ -3662,7 +4073,7 @@ impl Render for Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{files, DiffFile, FileContent};
+    use super::{files, DiffFile, FileContent, Preferences, SavedView};
     fn content(old: Option<&str>, new: Option<&str>) -> FileContent {
         FileContent {
             snapshot_id: "snapshot".into(),
@@ -3680,6 +4091,47 @@ mod tests {
             metadata: String::new(),
         }
     }
+    #[test]
+    fn independent_edit_and_new_draft_completion_preserves_the_other_buffer() {
+        let new = SavedView {
+            body: "new draft".into(),
+            fingerprint: Some("v1".into()),
+            ..Default::default()
+        };
+        let edit = SavedView {
+            body: "edited saved comment".into(),
+            editing: Some("comment-id".into()),
+            pending_new: Some(Box::new(new.clone())),
+            ..Default::default()
+        };
+        let after_new = edit.after_submission(&new, &SavedView::default()).unwrap();
+        assert_eq!(after_new.body, "edited saved comment");
+        assert_eq!(after_new.editing.as_deref(), Some("comment-id"));
+        assert_eq!(after_new.pending_new.as_ref().unwrap().body, "");
+        let mut current = edit.clone();
+        current.pending_new.as_mut().unwrap().body = "typed while edit save runs".into();
+        let after_edit = current.after_submission(&edit, &new).unwrap();
+        assert_eq!(after_edit.body, "typed while edit save runs");
+        assert!(after_edit.editing.is_none());
+        current.body = "newer edit".into();
+        assert!(current.after_submission(&edit, &new).is_none());
+        current.pending_new.as_mut().unwrap().body = "newer new draft".into();
+        assert!(current
+            .after_submission(&new, &SavedView::default())
+            .is_none());
+    }
+
+    #[test]
+    fn continuous_changes_default_respects_explicit_single_file_preference() {
+        assert!(Preferences::default().all_files);
+        assert!(serde_json::from_str::<Preferences>("{}").unwrap().all_files);
+        assert!(
+            !serde_json::from_str::<Preferences>(r#"{"allFiles":false}"#)
+                .unwrap()
+                .all_files
+        );
+    }
+
     #[test]
     fn native_parser_accepts_real_old_new_source_and_quoted_paths() {
         let c = content(Some("same\r\n\t旧😀\r\n"), Some("same\r\n\t新😀\r\nlast"));

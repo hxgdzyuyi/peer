@@ -1,0 +1,122 @@
+[
+  {
+    "path": "docs/native-validation/readable-release/release-identity/interaction.mp4",
+    "sha256": "8d5fa3f285906acb6f2a88ade2b4acc6a280acfce48e9765d9030e426030100a",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "260.333333",
+        "size": "9345291"
+      }
+    },
+    "full_decode": "passed"
+  },
+  {
+    "path": "docs/native-validation/readable-release/release-original/interaction.mp4",
+    "sha256": "a0772c94a52a9dc452921e5d7ae1270e6f1dda63d6f45c41b47724c160df9f6e",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "215.733333",
+        "size": "5273111"
+      }
+    },
+    "full_decode": "passed"
+  },
+  {
+    "path": "docs/native-validation/readable-release/release-tree/interaction.mp4",
+    "sha256": "54932bf51b970528ae67db2e0fb5bb7be75e33e16a137747e3f0ff6c58d7f6a9",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "195.866667",
+        "size": "5184041"
+      }
+    },
+    "full_decode": "passed"
+  },
+  {
+    "path": "docs/native-validation/readable-release/release-review/interaction.mp4",
+    "sha256": "fe41c1ef8366753e3469c27ebc2a73da885a2692ae06cf71f4a48c907b177d35",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "137.666667",
+        "size": "1856040"
+      }
+    },
+    "full_decode": "passed"
+  },
+  {
+    "path": "docs/native-validation/readable-release/release-parity/interaction.mp4",
+    "sha256": "8577871b8e4f4d90041cbf1fda9ed567e3feacd406a709831a62e669b3891321",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "136.400000",
+        "size": "2419358"
+      }
+    },
+    "full_decode": "passed"
+  },
+  {
+    "path": "docs/native-validation/readable-release/release-gestures/interaction.mp4",
+    "sha256": "cea79ef60ae89adc18f3bde3e6909dcb256fb1aa64215b3e5e1017d36dee60cb",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "118.800000",
+        "size": "2044354"
+      }
+    },
+    "full_decode": "passed"
+  }
+]

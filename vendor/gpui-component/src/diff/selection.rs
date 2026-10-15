@@ -29,6 +29,7 @@ pub(crate) struct CodeRun {
     line_ix: usize,
     display_range: Range<usize>,
     layout: TextLayout,
+    x_height: Pixels,
     bounds: Bounds<Pixels>,
     document: DiffFile,
 }
@@ -39,6 +40,7 @@ pub(crate) struct SelectionGeometry {
     scroll_offset: Point<Pixels>,
     multi_click: Cell<Option<(usize, Point<Pixels>, bool)>>,
     runs: Vec<CodeRun>,
+    labels: Vec<(usize, Bounds<Pixels>, bool)>,
 }
 
 impl SelectionGeometry {
@@ -58,6 +60,59 @@ impl SelectionGeometry {
 
     pub fn clear(&mut self) {
         self.runs.clear();
+        self.labels.clear();
+    }
+
+    pub(crate) fn record_label(&mut self, file: usize, bounds: Bounds<Pixels>, header: bool) {
+        self.labels.push((file, bounds, header));
+    }
+
+    pub(crate) fn header_scrolled_out(&self, file: usize) -> bool {
+        self.labels
+            .iter()
+            .find(|(candidate, _, header)| *candidate == file && *header)
+            .map(|(_, bounds, _)| bounds.bottom() <= self.bounds.top())
+            .unwrap_or(!self.runs.is_empty())
+    }
+
+    /// Only a complete letter-body band of nonempty text can choose the scrolling review
+    /// target. A clipped row's padding/background is not readable source.
+    pub(crate) fn visible_file(&self, _line_height: Pixels) -> Option<usize> {
+        let source = self.runs.iter().filter_map(|run| {
+            let line = &run.document.lines(run.side)[run.line_ix];
+            if line.display()[run.display_range.clone()].trim().is_empty() {
+                return None;
+            }
+            // Require the entire letter-body band (x-height to baseline).
+            // Font ascender/descender boxes include unpainted space; requiring
+            // those boxes would reject readable text at a clipped row edge.
+            let layout = run.layout.line_layout_for_index(0)?;
+            let line_height = run.layout.line_height();
+            let baseline =
+                (line_height - layout.ascent() - layout.descent()) / 2. + layout.ascent();
+            readable_line_top(
+                run.bounds,
+                self.bounds,
+                line_height,
+                baseline - run.x_height,
+                run.x_height,
+            )
+            .map(|y| (run.file, y))
+        });
+        let labels = self.labels.iter().filter_map(|(file, bounds, _)| {
+            readable_line_top(
+                *bounds,
+                self.bounds,
+                bounds.size.height,
+                px(0.),
+                bounds.size.height,
+            )
+            .map(|y| (*file, y))
+        });
+        source
+            .chain(labels)
+            .min_by_key(|(_, y)| *y)
+            .map(|(file, _)| file)
     }
 
     /// The widest painted source line, measured from its first text run.
@@ -136,6 +191,25 @@ impl SelectionGeometry {
 
 /// Prefer the half-open line band before proximity. Multi-click endpoints are
 /// positioned at the line top, shared with the preceding line's bottom.
+// Text runs may span several wrapped lines. Skip clipped lines, not the whole
+// run, and require a complete line inside both the run and the viewport.
+fn readable_line_top(
+    bounds: Bounds<Pixels>,
+    viewport: Bounds<Pixels>,
+    line_height: Pixels,
+    band_offset: Pixels,
+    font_height: Pixels,
+) -> Option<Pixels> {
+    if line_height <= px(0.) || bounds.size.height <= px(0.) {
+        return None;
+    }
+    let leading = band_offset;
+    let clipped: f32 = (viewport.top() - bounds.top() - leading).max(px(0.)).into();
+    let height: f32 = line_height.into();
+    let top = bounds.top() + leading + line_height * (clipped / height).ceil();
+    (top + font_height <= bounds.bottom() && top + font_height <= viewport.bottom()).then_some(top)
+}
+
 pub(super) fn line_distance(point: Point<Pixels>, bounds: Bounds<Pixels>) -> (bool, u32) {
     let outside = point.y < bounds.top() || point.y >= bounds.bottom();
     let distance: f32 = (point.y - bounds.center().y).abs().into();
@@ -331,7 +405,22 @@ impl Element for CodeText {
     ) {
         let text = self.styled_text.as_mut().unwrap();
         text.prepaint(id, inspector, bounds, &mut (), window, cx);
+        let x_height = text
+            .layout()
+            .line_layout_for_index(0)
+            .map_or(px(1.), |line| {
+                line.unwrapped_layout
+                    .runs
+                    .iter()
+                    .map(|run| {
+                        window
+                            .text_system()
+                            .x_height(run.font_id, line.unwrapped_layout.font_size)
+                    })
+                    .fold(px(1.), Pixels::max)
+            });
         self.geometry.borrow_mut().runs.push(CodeRun {
+            x_height,
             file: self.file,
             side: self.side,
             line_ix: self.line_ix,

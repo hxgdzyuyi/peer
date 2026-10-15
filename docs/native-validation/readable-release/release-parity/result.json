@@ -1,0 +1,21 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "selected-new.py",
+    "definition-range-selected",
+    "renamed-original-path-resolves",
+    "shared-line-new-side-mapped",
+    "selected-caller.py",
+    "deferred-target-range-selected",
+    "search-back-restores-target-selection",
+    "navigation-keeps-comment-location",
+    "branch-mode",
+    "code-mode",
+    "resume-branch-comparison",
+    "untracked-disabled",
+    "native-window-created",
+    "repository-opened",
+    "comparison-restart-preserves-untracked"
+  ]
+}

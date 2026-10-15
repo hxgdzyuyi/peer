@@ -1,0 +1,11 @@
+{
+  "base_commit": "938036e406efa86683c8b04edec42627f9a4b083",
+  "authorized_branch": "native/gpui-migration",
+  "binary_sha256": "0a915ce174692d11b333bd4778bff3ab08836247f1826ba413e5563819b5e4ac",
+  "platform": "Linux x86_64, Xvfb 1440x900, Mesa llvmpipe",
+  "command": "cargo build --locked --release -p peer",
+  "toolchain": "Rust 1.95.0",
+  "gpui_kit_revision": "67265a36e260ffe03c5aaebdcd8d654dbf892eab",
+  "video": "15 fps X11 wall-clock capture; no time scaling",
+  "source_note": "Source inputs are those of the UI commit containing this record; commit SHA is reported in the subsequent follow-up and final handoff."
+}

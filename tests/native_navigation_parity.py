@@ -133,7 +133,7 @@ def choose(path):
 def text():
     screenshot('latest');return run('tesseract',str(output/'latest.png'),'stdout')
 def search(query,reverse=False):
-    type_at(390,120,query,True);time.sleep(.6);press('shift+Return' if reverse else 'Return');time.sleep(.5)
+    type_at(390,144,query,True);time.sleep(.6);press('shift+Return' if reverse else 'Return');time.sleep(.5)
 def column(value):
     import csv,io
     screenshot('controls')
@@ -142,7 +142,7 @@ def column(value):
     type_at(350,int(row['top'])+int(row['height'])//2,str(value),True)
 def clipboard():return run('xclip','-selection','clipboard','-o')
 try:
-    start();choose('new.py')
+    start();click(875,72);choose('new.py')
     search('value = target()');rendered('old line 4');column(10);press('F12')
     rendered('old.py');screenshot('01-renamed-old-definition')
     press('ctrl+c')
@@ -151,12 +151,12 @@ try:
     button('Back');rendered('new.py');button('Modified B');column(10);press('F12');rendered('new.py')
     press('ctrl+c');wait('shared-line-new-side-mapped',lambda:clipboard()=='target');button('Back')
     # Search and explicit line jumps each have their own Back history entry.
-    choose('caller.py');search('deep_target()');button('Line scope');type_at(1200,210,'Draft before definition')
+    choose('caller.py');search('deep_target()');button('Line scope');type_at(1200,240,'Draft before definition')
     column(12);press('F12');rendered('Load large navigation source');screenshot('02-deferred-target')
     button('Load large navigation source');rendered('22001');screenshot('03-loaded-target-range')
     press('ctrl+c');wait('deferred-target-range-selected',lambda:clipboard()=='deep_target')
     search('return 99');rendered('line 22002');button('Back');press('ctrl+c');wait('search-back-restores-target-selection',lambda:clipboard()=='deep_target')
-    button('Back');rendered('Comment on new line 2');click(1200,210);press('ctrl+Return')
+    button('Back');rendered('Comment on new line 2');click(1200,240);press('ctrl+Return')
     wait('navigation-keeps-comment-location',lambda:any(c['body']=='Draft before definition' and c['path']=='caller.py' and c['anchor'].get('line')==2 for c in comments()))
     # Comparison controls and restart semantics.
     type_at(390,72,'baseline',True);button('Compare branch');wait('branch-mode',lambda:comparison().get('mode')=='branch')

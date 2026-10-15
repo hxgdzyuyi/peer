@@ -1,0 +1,32 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "changes-defaults-to-continuous-files",
+    "header-reviewed-bound-to-config",
+    "explicit-header-selection-survives-other-visible-file",
+    "header-comment-exact-path",
+    "new-composer-visible-during-edit",
+    "editing-card-keeps-new-composer",
+    "new-save-while-editing",
+    "card-edit-saved",
+    "latest-new-composer-visible",
+    "edit-save-preserves-latest-new-draft",
+    "latest-new-composer-visible",
+    "cancel-edit-preserves-new-draft",
+    "changed-source-comment-outdated-tag",
+    "history-outside-left-tree-closes",
+    "history-escape-closes",
+    "history-selects-commit-comparison",
+    "return-to-working-comparison",
+    "single-file-preference-persisted",
+    "native-window-created",
+    "repository-opened",
+    "single-file-preference-survives-restart",
+    "all-files-preference-restored",
+    "palette-open-workspace/components/panels/review/very_long_path_for_full_draft_target.rs",
+    "selected-workspace/components/panels/review/very_long_path_for_full_draft_target.rs",
+    "palette-closed-workspace/components/panels/review/very_long_path_for_full_draft_target.rs",
+    "full-long-draft-target-visible"
+  ]
+}

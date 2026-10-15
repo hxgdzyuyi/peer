@@ -74,7 +74,9 @@ harness-development attempts with cropped text, transient frames or duplicated
 synthetic keystrokes are not counted as passes. The 1,009-file tree scenario
 allows up to 180 seconds for batch loading on this cloud runner (the initial
 40-second wait timed out while the window still showed Loading); this is not
-a load-time performance acceptance. The tree wheel fixture uses 44 detents to
+a load-time performance acceptance. **The following 44-detent result was rejected
+as boundary acceptance; see [the readable-viewport follow-up](NATIVE-READABLE-FOLLOWUP.md)
+for the retained 45/44/46 regression.** The historical tree wheel fixture uses 44 detents to
 leave the first source text readable. At 45, the preceding file had only a few
 blank bottom pixels visible and OCR read the next complete file. Viewport tracking
 uses the first partially visible row, including such a clipped tail; it does not

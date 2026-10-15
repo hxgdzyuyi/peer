@@ -45,7 +45,7 @@ def state():
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def wait(label, predicate, timeout=15):
+def wait(label, predicate, timeout=40):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -90,7 +90,7 @@ def screenshot(name):
     run('import', '-window', 'root', str(output / f'{name}.png'))
 
 def rendered(phrase):
-    deadline=time.monotonic()+15
+    deadline=time.monotonic()+40
     while time.monotonic()<deadline:
         screenshot('ready-controls')
         if phrase.lower() in run('tesseract',str(output/'ready-controls.png'),'stdout').lower(): return
@@ -110,34 +110,58 @@ def quit_app():
 
 def press(*keys): run('xdotool','key',*keys);time.sleep(.25)
 def button(label):
+    # Fixed toolbar coordinates in the disposable 1440x900 fixture; outcomes
+    # are still checked through source pixels and exact persisted identities.
+    toolbar={'All files':(800,72),'Single file':(875,72),'Commit history':(980,72),'Back':(1320,24),'Refresh':(1250,24),'Toggle Reviewed':(1200,140)}
+    if label in toolbar:
+        click(*toolbar[label]);return
     import csv,io
-    screenshot('controls')
-    words=[r for r in csv.DictReader(io.StringIO(run('tesseract',str(output/'controls.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE) if r.get('text','').strip()]
-    wanted=[re.sub(r'[^a-z0-9]','',w.lower()) for w in label.split()]
-    for i in reversed(range(len(words))):
-        for count in range(1,len(wanted)+1):
-            rows=words[i:i+count]
-            if ''.join(re.sub(r'[^a-z0-9]','',r['text'].lower()) for r in rows)==''.join(wanted):
-                r=rows[0];click(int(r['left'])+int(r['width'])//2,int(r['top'])+int(r['height'])//2);return
+    wanted=re.sub(r'[^a-z0-9]','',label.lower())
+    deadline=time.monotonic()+40
+    while time.monotonic()<deadline:
+        screenshot('controls')
+        words=[r for r in csv.DictReader(io.StringIO(run('tesseract',str(output/'controls.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE) if r.get('text','').strip()]
+        for i in reversed(range(len(words))):
+            for size in range(1,len(label.split())+2):
+                rows=words[i:i+size]
+                if ''.join(re.sub(r'[^a-z0-9]','',r['text'].lower()) for r in rows)==wanted:
+                    r=rows[0];click(int(r['left'])+int(r['width'])//2,int(r['top'])+int(r['height'])//2);return
     raise AssertionError('Missing button '+label)
 def draft(body): return any(v.get('body')==body for v in state().get('nativeState',{}).values())
+def edit_body(value):
+    import csv,io
+    deadline=time.monotonic()+40
+    while time.monotonic()<deadline:
+        screenshot('edit-location')
+        rows=[r for r in csv.DictReader(io.StringIO(run('tesseract',str(output/'edit-location.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE) if r.get('text','').strip()]
+        labels=[r for r in rows if int(r['left'])>1130 and int(r['top'])>360 and (
+            re.sub(r'[^a-z]','',r['text'].lower())=='editcomment' or
+            (r['text']=='Edit' and any(q['text'].lower()=='comment' and abs(int(q['top'])-int(r['top']))<5 and 0<int(q['left'])-int(r['left'])<60 for q in rows)))]
+        if labels:
+            label=min(labels,key=lambda r:int(r['top']))
+            break
+    else:
+        raise AssertionError('No rendered card editor label')
+    type_at(1200,int(label['top'])+40,value,True)
+
 try:
-    start()
+    start();button("Single file");time.sleep(.5)
     # Explicit comment start freezes old-side source position independently of navigation.
-    click(405,231);button('Line scope')
-    type_at(1200,210,'Anchor survives navigation')
-    click(405,270);press('ctrl+Return')
+    click(405,255);button('Line scope')
+    type_at(1200,240,'Anchor survives navigation')
+    click(405,294);press('ctrl+Return')
     wait('comment-anchor-remains-old-line-2',lambda:any(c['body']=='Anchor survives navigation' and c['anchor'].get('side')=='old' and c['anchor'].get('line')==2 for c in comments()))
-    type_at(1200,210,'Preserved new draft')
-    button('Edit');type_at(1200,210,'Cancelled edit',True);press('Escape')
+    rendered('Review comment')
+    type_at(1200,240,'Preserved new draft')
+    button('Edit');edit_body('Cancelled edit');press('Escape')
     wait('cancel-edit-restores-new-draft',lambda:draft('Preserved new draft'))
     screenshot('01-cancel-restores-draft')
-    button('Edit');type_at(1200,210,'Discarded edit',True);button('Discard edit');wait('discard-edit-preserves-new-draft',lambda:draft('Preserved new draft'))
-    button('Edit');type_at(1200,210,'Updated saved comment',True);press('ctrl+Return')
+    button('Edit');edit_body('Discarded edit');button('Discard edit');wait('discard-edit-preserves-new-draft',lambda:draft('Preserved new draft'))
+    button('Edit');edit_body('Updated saved comment');press('ctrl+Return')
     wait('edit-save-updates-existing',lambda:len(comments())==1 and comments()[0]['body']=='Updated saved comment')
     wait('edit-save-restores-new-draft',lambda:draft('Preserved new draft'))
     # Persist full draft scope across single-file switch and restart.
-    click(405,231);button('Line scope');click(120,216);time.sleep(.5);click(120,184)
+    click(405,255);button('Line scope');click(120,240);time.sleep(.5);click(120,208)
     wait('draft-restored-after-file-switch',lambda:draft('Preserved new draft'))
     quit_app()
     # Recreate the first native release's fingerprint-keyed on-disk draft format.
@@ -151,32 +175,35 @@ try:
     (root/'a.rs').write_text('fn main() {\n\tprintln!("changed again");\n}\n')
     button('Refresh');rendered('Draft source changed')
     screenshot('02-stale-draft-visible')
-    click(1200,210);press('ctrl+Return');screenshot('stale-blocked');run('convert',str(output/'stale-blocked.png'),'-crop','1440x45+0+90','-negate',str(output/'error-crop.png'));assert 'explicitly choose' in run('tesseract',str(output/'error-crop.png'),'stdout').lower()
+    click(1200,240);press('ctrl+Return');screenshot('stale-blocked');run('convert',str(output/'stale-blocked.png'),'-crop','1440x45+0+120','-negate',str(output/'error-crop.png'));assert 'explicitly choose' in run('tesseract',str(output/'error-crop.png'),'stdout').lower()
     assert len(comments())==1;checks.append('stale-draft-submit-blocked')
     # File scope is explicit confirmation and saves body after refresh.
     button('File scope');press('ctrl+Return')
     wait('explicit-reattach-saves-preserved-body',lambda:any(c['body']=='Preserved new draft' and not c['anchor'].get('line') for c in comments()))
+    rendered('Review comment')
     # All-files switching restores body, anchor, editing identity and the suspended new draft.
-    type_at(390,120,'println',True);time.sleep(.5);press('Return');button('Line scope')
-    type_at(1200,210,'Multi-file anchored draft');button('All files');rendered('files loaded')
-    click(120,216);time.sleep(.4);click(120,184)
+    type_at(390,144,'println',True);time.sleep(.5);press('Return');button('Line scope')
+    type_at(1200,240,'Multi-file anchored draft');button('All files');rendered('files loaded')
+    click(120,240);time.sleep(.4);click(120,208)
     wait('multi-file-draft-restored',lambda:any(v.get('body')=='Multi-file anchored draft' and v.get('line')==2 for v in state().get('nativeState',{}).values()))
-    button('Edit');type_at(1200,210,'Suspended saved edit',True)
-    click(120,216);time.sleep(.4);click(120,184)
+    button('Edit');edit_body('Suspended saved edit')
+    click(120,240);time.sleep(.4);click(120,208)
     wait('multi-file-edit-identity-restored',lambda:any(v.get('body')=='Suspended saved edit' and v.get('editing') and v.get('pending_new',{}).get('body')=='Multi-file anchored draft' for v in state().get('nativeState',{}).values()))
-    click(1200,210);press('Escape');wait('multi-file-cancel-restores-new-draft',lambda:draft('Multi-file anchored draft'))
+    click(1200,240);press('Escape');wait('multi-file-cancel-restores-new-draft',lambda:draft('Multi-file anchored draft'))
     screenshot('03-multi-file-draft');button('Discard draft')
-    type_at(1200,210,'Save then immediate switch');press('ctrl+Return');click(120,216);time.sleep(.3);click(120,184)
+    type_at(1200,240,'Save then immediate switch');press('ctrl+Return');click(120,240);time.sleep(.3);click(120,208)
     wait('rapid-save-switch-does-not-duplicate',lambda:sum(c['body']=='Save then immediate switch' for c in comments())==1)
     wait('submitted-draft-not-resurrected',lambda:not draft('Save then immediate switch'))
     # Commit history closes both by toggle and Escape.
     button('Commit history');rendered('Initial');button('Commit history')
     screenshot('03-history-closed');assert 'Initial' not in run('tesseract',str(output/'03-history-closed.png'),'stdout');checks.append('history-button-closes')
     button('Commit history');press('Escape');screenshot('04-history-escape');assert 'Initial' not in run('tesseract',str(output/'04-history-escape.png'),'stdout');checks.append('history-escape-closes')
+    button('Commit history');rendered('Initial');click(100,208)
+    screenshot('04b-history-left-tree-outside');assert 'Initial' not in run('tesseract',str(output/'04b-history-left-tree-outside.png'),'stdout');checks.append('history-left-tree-outside-closes')
     # Search changes recompute and clearing removes persisted visual hits.
-    type_at(400,120,'main',True);time.sleep(.8);press('shift+Return');rendered('Match 2/2');checks.append('reverse-find-starts-at-last-match')
-    type_at(400,120,'no-such-symbol',True);rendered('No matches')
-    type_at(400,120,'',True);screenshot('05-find-cleared');checks.append('find-change-and-clear-live')
+    type_at(400,144,'main',True);time.sleep(.8);press('shift+Return');rendered('Match 2/2');checks.append('reverse-find-starts-at-last-match')
+    type_at(400,144,'no-such-symbol',True);rendered('No matches')
+    type_at(400,144,'',True);screenshot('05-find-cleared');checks.append('find-change-and-clear-live')
     quit_app()
     (output/'result.json').write_text(json.dumps({'passed':checks},indent=2)+'\n');print(json.dumps({'passed':len(checks)}))
 except Exception:

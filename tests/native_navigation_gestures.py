@@ -93,7 +93,11 @@ def rendered(phrase):
     deadline=time.monotonic()+15
     while time.monotonic()<deadline:
         screenshot('ready-controls')
-        if phrase.lower() in run('tesseract',str(output/'ready-controls.png'),'stdout').lower(): return
+        text=run('tesseract',str(output/'ready-controls.png'),'stdout')
+        if phrase.startswith('CONTEXT_MARKER_'):
+            # Numbered fixture markers have observed OCR S/5 and O/0 ambiguity.
+            text=re.sub(r'CONTEXT[ _]+MARKER[ _]+([0-9SO]+)',lambda m:'CONTEXT_MARKER_'+m[1].translate(str.maketrans({'S':'5','O':'0'})),text.upper())
+        if phrase.lower() in text.lower():return
     raise AssertionError('Rendered control did not appear: '+phrase)
 
 def comments():
@@ -133,7 +137,7 @@ def choose(path):
 def text():
     screenshot('latest');return run('tesseract',str(output/'latest.png'),'stdout')
 def search(query,reverse=False):
-    type_at(390,120,query,True);time.sleep(.6);press('shift+Return' if reverse else 'Return');time.sleep(.5)
+    type_at(390,144,query,True);time.sleep(.6);press('shift+Return' if reverse else 'Return');time.sleep(.5)
 def column(value):
     import csv,io
     screenshot('controls')
@@ -144,13 +148,20 @@ def clipboard():return run('xclip','-selection','clipboard','-o')
 
 def call_point():
     import csv,io
-    screenshot('controls');rows=csv.DictReader(io.StringIO(run('tesseract',str(output/'controls.png'),'stdout','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE)
-    row=next(r for r in rows if re.sub(r'[^a-z]','',r.get('text','').lower())=='value' and int(r['top'])>160)
-    return int(row['left'])+85,int(row['top'])+int(row['height'])//2
+    screenshot('controls')
+    # Locate the actual source word, using a contrast-normalized fallback for
+    # Find's dark highlight. Keep original screenshots and both OCR crops.
+    for name,filters in [('call-source',[]),('call-source-contrast',['-colorspace','Gray','-threshold','40%'])]:
+        run('convert',str(output/'controls.png'),'-crop','870x610+250+178',*filters,'-resize','200%',str(output/f'{name}.png'))
+        rows=csv.DictReader(io.StringIO(run('tesseract',str(output/f'{name}.png'),'stdout','--psm','6','tsv')),delimiter='\t',quoting=csv.QUOTE_NONE)
+        row=next((r for r in rows if re.sub(r'[^a-z]','',r.get('text','').lower())=='value' and 50 <= int(r['width']) <= 100 and float(r['conf']) >= 70),None)
+        if row:return int(row['left'])//2+250+85,(int(row['top'])+int(row['height'])//2)//2+178
+    raise AssertionError('Cannot locate value in visible source pixels')
+
 context='def target():\n    return 17\n'+''.join(f'# CONTEXT_MARKER_{n}\n' for n in range(3,34))+'value = target()\n'+''.join(f'# CONTEXT_MARKER_{n}\n' for n in range(35,65))
 (root/'context.py').write_text(context);git('add','context.py');git('commit','--only','-m','Context baseline','context.py');(root/'context.py').write_text(context.replace('MARKER_55','CHANGED_55'))
 try:
-    start();choose('new.py');search('value = target()')
+    start();click(875,72);choose('new.py');search('value = target()')
     x,y=call_point();run('xdotool','keydown','ctrl');click(x,y);run('xdotool','keyup','ctrl')
     rendered('Working files');press('ctrl+c');wait('ctrl-click-definition',lambda:clipboard()=='target');screenshot('01-control-click-definition')
     button('Back');x,y=call_point();run('xdotool','mousemove',str(x),str(y),'click','3');rendered('Go to definition');screenshot('02-context-menu')

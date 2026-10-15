@@ -1,0 +1,20 @@
+{
+  "build": "cargo build --release --locked -p peer",
+  "tests": "cargo test --locked --workspace",
+  "window_commands": [
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh identity test-results/readable/final-identity",
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh original test-results/readable/final-original",
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh tree test-results/readable/final-tree",
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh review test-results/readable/final-review",
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh parity test-results/readable/final-parity",
+    "PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh gestures test-results/readable/final-gestures"
+  ],
+  "counts": {
+    "identity": 79,
+    "original": 28,
+    "tree": 39,
+    "review": 23,
+    "parity": 17,
+    "gestures": 10
+  }
+}

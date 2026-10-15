@@ -10,4 +10,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/bundle-macos.sh
       - uses: actions/upload-artifact@v4
-        with: { name: Peer-native-macos, path: target/release/bundle/Peer.app }
+        with: { name: Peer-native-macos, path: target/release/bundle/Peer-native-macos.zip, if-no-files-found: error }
