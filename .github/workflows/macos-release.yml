@@ -7,7 +7,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: 1.95.0 }
-      - uses: Swatinem/rust-cache@v2
       - run: scripts/bundle-macos.sh
       - uses: actions/upload-artifact@v4
-        with: { name: Peer-native-macos, path: target/release/bundle/Peer-native-macos.zip, if-no-files-found: error }
+        with: { name: Peer-native-macos, path: target/release/bundle/, if-no-files-found: error }
