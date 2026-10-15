@@ -754,12 +754,16 @@ struct State {
 }
 impl State {
     fn take_idle_sessions(&mut self) -> Vec<Arc<Session>> {
+        self.take_idle_sessions_at(Instant::now())
+    }
+    fn take_idle_sessions_at(&mut self, now: Instant) -> Vec<Arc<Session>> {
         let expired: Vec<_> = self
             .sessions
             .iter()
             .filter(|(_, session)| {
                 Arc::strong_count(session) == 1
-                    && session.used.lock().unwrap().elapsed() >= Duration::from_secs(300)
+                    && now.saturating_duration_since(*session.used.lock().unwrap())
+                        >= Duration::from_secs(300)
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1326,7 +1330,6 @@ mod tests {
         let mut maximum = 0;
         for session in state.sessions.values() {
             maximum = maximum.max(session.opened.lock().await.len());
-            *session.used.lock().unwrap() = Instant::now() - Duration::from_secs(301);
         }
         assert_eq!(maximum, 32);
         let roots: Vec<_> = state
@@ -1334,7 +1337,10 @@ mod tests {
             .values()
             .map(|workspace| workspace.root.clone())
             .collect();
-        let retired = state.take_idle_sessions();
+        assert!(state.take_idle_sessions().is_empty());
+        // Windows Instant may be less than 301 seconds from its clock origin.
+        // Advance the observation time instead of inventing a negative instant.
+        let retired = state.take_idle_sessions_at(Instant::now() + Duration::from_secs(301));
         assert_eq!(retired.len(), 4);
         assert!(state.sessions.is_empty());
         drop(state);

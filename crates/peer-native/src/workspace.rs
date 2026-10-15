@@ -224,7 +224,6 @@ pub struct Workspace {
     resize_drag: Option<(usize, f32, SidebarWidths)>,
     tree_cursor: Option<String>,
     tree_reveal_pending: bool,
-    history: Vec<String>,
     branches: Vec<String>,
     commits: Vec<Commit>,
     more_commits: bool,
@@ -238,17 +237,24 @@ pub struct Workspace {
     recent_visible: bool,
     hits: Vec<presentation::SearchHit>,
     hit: usize,
-    navigation_history: Vec<(
-        DiffCheckpoint,
-        Option<NavigationFile>,
-        Option<DiffLinePosition>,
-        Option<NavigationResult>,
-        Option<peer_core::navigation::SourceRange>,
-        String,
-    )>,
+    navigation_history: Vec<NavigationCheckpoint>,
     navigation: Option<NavigationResult>,
     navigation_file: Option<NavigationFile>,
     navigation_request: Option<String>,
+}
+
+// Checkpoints retain source identity, never a copy of an editable draft. Back
+// reads the latest per-file draft (including successful-save tombstones).
+struct NavigationCheckpoint {
+    diff: DiffCheckpoint,
+    content: Option<Arc<FileContent>>,
+    all_files: bool,
+    loaded_files: BTreeMap<String, Arc<FileContent>>,
+    file: Option<NavigationFile>,
+    anchor: Option<DiffLinePosition>,
+    navigation: Option<NavigationResult>,
+    target: Option<peer_core::navigation::SourceRange>,
+    column: String,
 }
 
 fn source_byte(source: &str, position: Position) -> Option<usize> {
@@ -428,7 +434,6 @@ impl Workspace {
             resize_drag: None,
             tree_cursor: None,
             tree_reveal_pending: false,
-            history: vec![],
             branches: vec![],
             commits: vec![],
             more_commits: false,
@@ -469,7 +474,10 @@ impl Workspace {
             window,
             |this, _, event: &DiffEvent, w, c| {
                 if let DiffEvent::ViewportFileChanged(path) = event {
-                    if this.all_files && this.navigation_file.is_none() {
+                    if this.all_files
+                        && this.navigation_file.is_none()
+                        && this.diff.read(c).viewport_file_is_current(path)
+                    {
                         this.activate_loaded(path, w, c);
                     }
                 }
@@ -770,9 +778,15 @@ impl Workspace {
         }
         let core = self.core.clone();
         let gate = self.gate.clone();
-        self.pending_saves.retain(|save| !save.is_finished());
+        // Preserve UI transition order even when Tokio schedules later writes
+        // first. Every file's draft is retained; only chaining session writes
+        // avoids an older selectedPath overwriting the restored identity.
+        let previous_saves = std::mem::take(&mut self.pending_saves);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_saves.push(self.runtime.spawn(async move {
+            for save in previous_saves {
+                let _ = save.await;
+            }
             let _guard = gate.lock().await;
             let result = core.store.update(|data| {
                 let legacy_top = data
@@ -851,7 +865,6 @@ impl Workspace {
         self.content = None;
         self.snapshot = None;
         self.anchor = None;
-        self.history.clear();
         self.navigation_history.clear();
         self.navigation_file = None;
         self.diff.update(cx, |s, cx| s.set_files([], cx));
@@ -1080,7 +1093,13 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.all_files && !force {
+        if !force
+            && (self.navigation_file.is_some()
+                || self.content.as_ref().is_some_and(|f| f.file_id != id))
+        {
+            self.push_navigation_history(cx);
+        }
+        if self.all_files && !force && self.navigation_file.is_none() {
             if let Some(path) = self
                 .loaded_files
                 .values()
@@ -1101,20 +1120,11 @@ impl Workspace {
         };
         let snapshot_id = snapshot.id.clone();
         let code = snapshot.comparison.view == "code";
-        if let Some(content) = &self.content {
-            if content.file_id != id {
-                self.history.push(content.file_id.clone());
-                if self.history.len() > 100 {
-                    self.history.remove(0);
-                }
-            }
-        }
         self.file_epoch += 1;
         let generation = self.file_epoch;
         let epoch = self.epoch.load(Ordering::SeqCst);
         self.content = None;
         self.navigation_file = None;
-        self.navigation_history.clear();
         self.anchor = None;
         self.editing = None;
         self.comment_anchor = None;
@@ -1401,7 +1411,7 @@ impl Workspace {
                     }
                 }
                 // Never clear text typed while the asynchronous save was in flight.
-                if this.file_epoch == generation && this.comment_view(cx).same_draft(&submitted) {
+                if this.draft_key() == key && this.comment_view(cx).same_draft(&submitted) {
                     this.restore_comment(restored.clone(), window, cx);
                     this.remember(cx);
                 }
@@ -1731,48 +1741,52 @@ impl Workspace {
         cx.notify();
     }
     fn push_navigation_history(&mut self, cx: &App) {
-        self.navigation_history.push((
-            self.diff.read(cx).checkpoint(cx),
-            self.navigation_file.clone(),
-            self.anchor.clone(),
-            self.navigation.clone(),
-            self.pending_location.clone(),
-            self.column.read(cx).value().to_string(),
-        ));
+        self.navigation_history.push(NavigationCheckpoint {
+            diff: self.diff.read(cx).checkpoint(cx),
+            content: self.content.clone(),
+            all_files: self.all_files,
+            loaded_files: self.loaded_files.clone(),
+            file: self.navigation_file.clone(),
+            anchor: self.anchor.clone(),
+            navigation: self.navigation.clone(),
+            target: self.pending_location.clone(),
+            column: self.column.read(cx).value().to_string(),
+        });
         if self.navigation_history.len() > 100 {
             self.navigation_history.remove(0);
         }
     }
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((checkpoint, file, anchor, navigation, target, column)) =
-            self.navigation_history.pop()
-        {
+        if let Some(checkpoint) = self.navigation_history.pop() {
+            self.remember(cx);
             self.file_epoch += 1;
             self.cancel_navigation();
-            self.navigation_file = file;
+            self.loading = false;
+            self.pending_jump = None;
+            self.content = checkpoint.content;
+            self.all_files = checkpoint.all_files;
+            self.loaded_files = checkpoint.loaded_files;
+            self.navigation_file = checkpoint.file;
             self.notice = self
                 .navigation_file
                 .as_ref()
                 .map(|f| f.label.clone())
                 .unwrap_or_else(|| "Returned to review source".into());
-            self.anchor = anchor;
-            self.navigation = navigation;
-            self.pending_location = target;
+            self.anchor = checkpoint.anchor;
+            self.navigation = checkpoint.navigation;
+            self.pending_location = checkpoint.target;
             self.column
-                .update(cx, |s, cx| s.set_value(column, window, cx));
+                .update(cx, |s, cx| s.set_value(checkpoint.column, window, cx));
             self.hits.clear();
+            self.search_fresh = true;
+            self.restore_comment(self.saved_comment_view().unwrap_or_default(), window, cx);
             self.diff
-                .update(cx, |s, cx| s.restore_checkpoint(checkpoint, cx));
+                .update(cx, |s, cx| s.restore_checkpoint(checkpoint.diff, cx));
             if let Some(path) = self.content.as_ref().map(|f| f.path.clone()) {
                 self.reveal_tree(&path, window, cx);
             }
+            self.remember(cx);
             cx.notify();
-            return;
-        }
-        if let Some(id) = self.history.pop() {
-            let history = std::mem::take(&mut self.history);
-            self.select(id, false, window, cx);
-            self.history = history;
         }
     }
     fn load_commits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2706,6 +2720,7 @@ impl Render for Workspace {
                         return;
                     }
                     this.feedback_visible = true;
+                    this.diff.update(cx, |s, _| s.preserve_viewport_identity());
                     this.activate_loaded(range.path(), window, cx);
                     this.begin_comment(
                         Some(DiffLinePosition::new(
@@ -2721,6 +2736,7 @@ impl Render for Workspace {
             })
             .on_line_click(move |position, event, window, cx| {
                 let _ = click_weak.update(cx, |this, cx| {
+                    this.diff.update(cx, |s, _| s.preserve_viewport_identity());
                     this.activate_loaded(position.path(), window, cx);
                     this.anchor = Some(position.clone());
                     if let ClickEvent::Mouse(mouse) = event {
@@ -2764,6 +2780,7 @@ impl Render for Workspace {
                 MouseButton::Right,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     if let Some((position, byte)) = this.diff.read(cx).position_at(event.position) {
+                        this.diff.update(cx, |s, _| s.preserve_viewport_identity());
                         this.activate_loaded(position.path(), window, cx);
                         let source = this
                             .navigation_file

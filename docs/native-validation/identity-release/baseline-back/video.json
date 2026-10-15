@@ -1,0 +1,16 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "width": 1440,
+      "height": 900,
+      "avg_frame_rate": "25380/1723"
+    }
+  ],
+  "format": {
+    "duration": "114.866667"
+  },
+  "decode_errors": 0,
+  "playback": "unmodified real-time X11 capture"
+}

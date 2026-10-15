@@ -1,5 +1,9 @@
 # GPUI native validation — 2026-10-14
 
+The later independent acceptance found two All-files review-target errors that
+these historical results missed. See [the identity follow-up](NATIVE-IDENTITY-FOLLOWUP.md)
+for the repair, independent center-pixel assertions, and new execution evidence.
+
 Baseline: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`, independently checked against upstream main. Implementation branch: `native/gpui-migration`. Historical WebView results are isolated in [VALIDATION-WEBVIEW-BASELINE.md](VALIDATION-WEBVIEW-BASELINE.md); none count as native acceptance.
 
 ## Review safety and workflow follow-up

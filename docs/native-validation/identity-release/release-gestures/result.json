@@ -1,0 +1,14 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "selected-new.py",
+    "ctrl-click-definition",
+    "context-menu-definition",
+    "context-menu-references",
+    "back-restores-native-selected-bytes",
+    "text-selection-navigation-remains-usable",
+    "selected-context.py",
+    "back-restores-expanded-context"
+  ]
+}

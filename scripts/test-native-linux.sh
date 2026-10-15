@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 if [[ $(uname -s) != Linux ]]; then echo 'These window tests require Linux/X11' >&2; exit 1; fi
 if [[ ${1:-} != --session ]]; then
   scenario=${1:-smoke}
-  case "$scenario" in smoke|desktop|navigation|errors|tree|transition|review|parity|resize|gestures|history) ;; *) echo 'Use smoke, desktop, navigation, errors, tree, transition, review, parity, resize, gestures or history' >&2; exit 2;; esac
+  case "$scenario" in smoke|desktop|navigation|errors|tree|transition|review|parity|resize|gestures|history|identity) ;; *) echo 'Use smoke, desktop, navigation, errors, tree, transition, review, parity, resize, gestures, history or identity' >&2; exit 2;; esac
   output=${2:-test-results/native-$scenario}
   config=$(mktemp -d /tmp/peer-test-config-XXXXXX)
   trap 'rm -rf "$config"' EXIT
@@ -44,7 +44,9 @@ if [[ ${PEER_RECORD:-0} == 1 ]]; then
   ffmpeg -y -f x11grab -video_size 1440x900 -framerate 15 -i "$DISPLAY" -c:v libx264 -preset ultrafast -crf 25 -pix_fmt yuv420p "$output/interaction.mp4" > "$output/recording.log" 2>&1 &
   children+=("$!")
 fi
-if [[ $scenario == history ]]; then
+if [[ $scenario == identity ]]; then
+  python3 tests/native_identity.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
+elif [[ $scenario == history ]]; then
   python3 tests/native_history.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"
 elif [[ $scenario == gestures ]]; then
   python3 tests/native_navigation_gestures.py "${PEER_NATIVE_BINARY:-target/debug/peer}" "$output"

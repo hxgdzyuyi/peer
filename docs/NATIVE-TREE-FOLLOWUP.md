@@ -1,5 +1,9 @@
 # File tree follow-up: db2e860 versus native repair
 
+The later independent acceptance found two All-files review-target errors that
+these historical results missed. See [the identity follow-up](NATIVE-IDENTITY-FOLLOWUP.md)
+for the repair, independent center-pixel assertions, and new execution evidence.
+
 The user's video review identified real migration defects. They are implementation
 omissions, not GPUI limitations. Baseline source: `72e854c:src/FileTree.tsx` and
 `Viewer.tsx`; first delivered native source: `db2e860:crates/peer-native/src/workspace.rs`.

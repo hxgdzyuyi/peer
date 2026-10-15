@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     ops::Range,
     rc::Rc,
@@ -210,7 +210,7 @@ pub struct DiffCheckpoint {
     context_lines: Option<usize>,
     selected_lines: Option<DiffLineRange>,
     source_selection: Option<(usize, DiffSide, Range<usize>)>,
-    viewport: Option<(DiffLinePosition, f32)>,
+    viewport: ListOffset,
     horizontal: f32,
 }
 
@@ -230,6 +230,9 @@ pub struct DiffState {
     rows: Rc<Vec<DisplayRow>>,
     change_rows: Vec<usize>,
     list: ListState,
+    viewport_revision: u64,
+    observed_viewport: Option<(usize, Pixels, SharedString)>,
+    viewport_follow: Rc<Cell<bool>>,
     horizontal_scroll: ScrollHandle,
     focus: FocusHandle,
     selection: TextSelectionHandle,
@@ -253,6 +256,35 @@ pub struct DiffState {
     preparing: Option<usize>,
     _presentation: Task<()>,
     _selection_subscription: Subscription,
+}
+
+/// The toolkit scrollbar mutates ListState directly. Mark that input without
+/// publishing an estimated pre-layout file or changing toolkit scrolling.
+#[derive(Clone)]
+pub(crate) struct ViewportScrollbar {
+    list: ListState,
+    follow: Rc<Cell<bool>>,
+}
+impl gpui_base::ScrollbarHandle for ViewportScrollbar {
+    fn viewport_bounds(&self) -> gpui::Bounds<Pixels> {
+        self.list.viewport_bounds()
+    }
+    fn offset(&self) -> gpui::Point<Pixels> {
+        self.list.scroll_px_offset_for_scrollbar()
+    }
+    fn set_offset(&self, offset: gpui::Point<Pixels>) {
+        self.follow.set(true);
+        self.list.set_offset_from_scrollbar(offset);
+    }
+    fn content_size(&self) -> Size<Pixels> {
+        self.list.viewport_bounds().size + self.list.max_offset_for_scrollbar().into()
+    }
+    fn start_drag(&self) {
+        self.list.scrollbar_drag_started();
+    }
+    fn end_drag(&self) {
+        self.list.scrollbar_drag_ended();
+    }
 }
 
 impl EventEmitter<DiffEvent> for DiffState {}
@@ -407,6 +439,9 @@ impl DiffState {
             rows: Rc::default(),
             change_rows: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(0.)),
+            viewport_revision: 0,
+            observed_viewport: None,
+            viewport_follow: Rc::new(Cell::new(true)),
             horizontal_scroll: ScrollHandle::new(),
             focus,
             selection,
@@ -432,23 +467,11 @@ impl DiffState {
             _presentation: Task::ready(()),
             _selection_subscription,
         };
+        // Wheel input only marks intent; publication still waits for layout.
+        let follow = state.viewport_follow.clone();
         state
             .list
-            .set_scroll_handler(cx.listener(|_, _: &gpui::ListScrollEvent, _, cx| {
-                // ListState invokes this while its scroll storage is borrowed. Read
-                // the final (not the preceding painted) offset after that borrow ends.
-                let weak = cx.entity().downgrade();
-                cx.defer(move |cx| {
-                    let _ = weak.update(cx, |this, cx| {
-                        let ix = this.list.logical_scroll_top().item_ix;
-                        if let Some(row) = this.rows.get(ix) {
-                            if let Some(file) = this.files.get(row.file()) {
-                                cx.emit(DiffEvent::ViewportFileChanged(file.path().clone()));
-                            }
-                        }
-                    });
-                });
-            }));
+            .set_scroll_handler(move |_, _, _| follow.set(true));
         state.rebuild(true);
         state
     }
@@ -620,6 +643,72 @@ impl DiffState {
     pub(crate) fn set_content_width(&mut self, width: Pixels) {
         self.content_width = width;
     }
+    /// Capture after the virtual list has laid out and clamped its offset. All
+    /// scrolling sources (including ListState commands and scrollbars) converge
+    /// here. Deferred publication cannot apply an older frame to replaced files
+    /// or override a subsequent explicit selection / checkpoint restoration.
+    pub(crate) fn observe_viewport(&mut self, cx: &mut Context<Self>) {
+        let offset = self.list.logical_scroll_top();
+        let Some(path) = self
+            .rows
+            .get(offset.item_ix)
+            .and_then(|row| self.files.get(row.file()))
+            .map(|file| file.path().clone())
+        else {
+            return;
+        };
+        let observed = (offset.item_ix, offset.offset_in_item, path.clone());
+        let changed = self.observed_viewport.as_ref() != Some(&observed);
+        self.observed_viewport = Some(observed.clone());
+        if !self.viewport_follow.get() || !changed {
+            return;
+        }
+        let revision = self.viewport_revision;
+        let rows = self.rows.clone();
+        let weak = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = weak.update(cx, |this, cx| {
+                let current = this.list.logical_scroll_top();
+                if this.viewport_follow.get()
+                    && this.viewport_revision == revision
+                    && Rc::ptr_eq(&rows, &this.rows)
+                    && (current.item_ix, current.offset_in_item) == (observed.0, observed.1)
+                {
+                    cx.emit(DiffEvent::ViewportFileChanged(path));
+                }
+            });
+        });
+    }
+
+    /// Keep an explicitly chosen review identity even if bottom clamping places
+    /// a preceding short file at the top. A later viewport movement resumes follow.
+    pub fn preserve_viewport_identity(&mut self) {
+        self.viewport_revision += 1;
+        self.viewport_follow.set(false);
+    }
+
+    /// Subscribers may run after another queued effect replaced the source or
+    /// explicitly selected a file. Revalidate at the application boundary too.
+    pub fn viewport_file_is_current(&self, path: &str) -> bool {
+        self.viewport_follow.get()
+            && self
+                .rows
+                .get(self.list.logical_scroll_top().item_ix)
+                .and_then(|row| self.files.get(row.file()))
+                .is_some_and(|file| file.path().as_str() == path)
+    }
+
+    pub(crate) fn follow_viewport(&self) {
+        self.viewport_follow.set(true);
+    }
+
+    pub(crate) fn scrollbar(&self) -> ViewportScrollbar {
+        ViewportScrollbar {
+            list: self.list.clone(),
+            follow: self.viewport_follow.clone(),
+        }
+    }
+
     /// Records the painted body size and widest painted row. Returns whether
     /// either changed, so the frame must be laid out again.
     pub(crate) fn record_paint(&mut self, viewport: Size<Pixels>, painted_width: Pixels) -> bool {
@@ -640,6 +729,9 @@ impl DiffState {
         {
             TextSelection::clear_for_window(window, cx);
         }
+        self.viewport_revision += 1;
+        self.observed_viewport = None;
+        self.viewport_follow.set(true);
         self.files = files.into_iter().collect();
         self.file_ixs = file_ixs(&self.files);
         self.collapsed
@@ -826,7 +918,7 @@ impl DiffState {
             context_lines: self.context_lines,
             selected_lines: self.selected_lines.clone(),
             source_selection: self.source_selection(cx),
-            viewport: self.viewport_anchor(),
+            viewport: self.list.logical_scroll_top(),
             horizontal: self.horizontal_offset(),
         }
     }
@@ -843,9 +935,10 @@ impl DiffState {
             cx,
         );
         self.restore_horizontal(checkpoint.horizontal, cx);
-        if let Some((position, offset)) = checkpoint.viewport {
-            self.restore_viewport(position, offset, cx);
-        }
+        // The checkpoint restores the identical row projection, so retain the
+        // exact logical row (including headers, folded or source-less files).
+        self.list.scroll_to(checkpoint.viewport);
+        self.preserve_viewport_identity();
         cx.notify();
     }
     pub(crate) fn source_selection(&self, cx: &App) -> Option<(usize, DiffSide, Range<usize>)> {
@@ -924,6 +1017,7 @@ impl DiffState {
     /// Reveals and scrolls to a source line, expanding its file and hidden
     /// context if needed.
     pub fn scroll_to_line(&mut self, position: DiffLinePosition, cx: &mut Context<Self>) {
+        self.follow_viewport();
         if self.line_index(&position).is_none() {
             return;
         }
@@ -944,6 +1038,7 @@ impl DiffState {
         else {
             return;
         };
+        self.preserve_viewport_identity();
         self.list.scroll_to(ListOffset {
             item_ix,
             offset_in_item: px(0.),
@@ -1329,6 +1424,7 @@ impl DiffState {
     }
 
     fn move_change(&mut self, forward: bool, cx: &mut Context<Self>) {
+        self.follow_viewport();
         let top = self.list.logical_scroll_top().item_ix;
         let groups = &self.change_rows;
         let target = if forward {

@@ -98,6 +98,16 @@ for i in range(1000):(root/'many'/f'file{i:04}.rs').write_text(f'source {i}\n')
 def tree_text():
     shot('tree-latest');run('convert',str(out/'tree-latest.png'),'-crop','244x668+0+168','-resize','200%',str(out/'tree-crop.png'))
     return norm(run('tesseract',str(out/'tree-crop.png'),'stdout','--psm','6'))
+def central_file():
+    # Independent rendered-source oracle: this crop excludes tree and feedback.
+    shot('center-source')
+    crop=out/'center-source-crop.png'
+    run('convert',str(out/'center-source.png'),'-crop','870x644+250+144','-resize','300%',str(crop))
+    value=run('tesseract',str(crop),'stdout','--psm','6').lower()
+    match=re.search(r'many/file([0-9o]{4})\.rs|source\s+([0-9]+)',value)
+    assert match, 'No central file header in pixels: '+value
+    number=int(match[1].replace('o','0') if match[1] else match[2])
+    return f'many/file{number:04}.rs'
 def selected():return state().get('preferences',{}).get('sessions',{}).get(str(root),{}).get('selectedPath')
 def choose(query):
     enter(100,142,query);key('Return');wait('selected-'+query,lambda: selected()==query)
@@ -152,11 +162,14 @@ try:
         click(110,820);key('Left');shot('08-parent-focused');key('Right');key('End')
         wait('keyboard-end-opens-last-file',lambda:selected()=='z-notes.txt');shot('09-keyboard-end');key('Up');wait('keyboard-up-opens-previous-file',lambda:selected()=='added.txt');key('Down');wait('keyboard-down-opens-next-file',lambda:selected()=='z-notes.txt')
     # Multi-file scrolling drives selection, without jumping the Diff back.
-    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'));before_scroll=selected();click(120,142)  # Keep the filter focused while the Diff scrolls.
-    run('xdotool','mousemove','800','400','click','--repeat','45','--delay','35','5');time.sleep(1)
+    choose('app/components/card.rs');clear_filter();click(800,72);wait('multifile-load-completed',lambda:pixels_contain('1009 files loaded'),timeout=180);before_scroll=selected();click(120,142)  # Keep the filter focused while the Diff scrolls.
+    # Stop on readable source: 45 detents leaves only a blank clipped tail of
+    # the preceding row, whose file cannot be determined from OCR alone.
+    run('xdotool','mousemove','800','400','click','--repeat','44','--delay','35','5');time.sleep(1)
     wait('multifile-wheel-updates-selected',lambda:selected()!=before_scroll and selected() is not None)
     shot('10-multifile-scroll-sync')
-    active=selected()
+    active=central_file()
+    wait('session-matches-independent-center',lambda:selected()==active)
     run('xdotool','type','--clearmodifiers','file002')
     shot('11-filter-focus-preserved');assert 'file002' in run('tesseract',str(out/'11-filter-focus-preserved.png'),'stdout');checks.append('scroll-keeps-filter-focus')
     clear_filter();enter(1200,210,'Visible multi-file target');click(1200,310)

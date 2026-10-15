@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "nativeState": {
+    "draft-v2:ef5d1616e4894d3c7f1d4bfda467a2ea4a7190797fcd92814fa92e458b40467f:app/main.rs": {
+      "body": "main latest draft",
+      "fingerprint": "7dfa00b47b2c6e149d08ec6f634b6a927b34c1e470e496ea6e38a3825b80cdaf",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:ef5d1616e4894d3c7f1d4bfda467a2ea4a7190797fcd92814fa92e458b40467f:config/app.json": {
+      "body": "config latest draft",
+      "fingerprint": "97d875a15021c7606fafbc7c22cc115b4284d2b102e6e5870ce44eb2d8b50565",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    }
+  },
+  "preferences": {
+    "sidebarWidths": {
+      "files": 244,
+      "feedback": 310
+    },
+    "appearance": {
+      "mode": "system",
+      "lightTheme": "github-light",
+      "darkTheme": "github-dark"
+    },
+    "recentRepositories": [
+      "/tmp/peer-native-smoke-n0_0h53o/repository"
+    ],
+    "lastRepository": "/tmp/peer-native-smoke-n0_0h53o/repository",
+    "sessions": {
+      "/tmp/peer-native-smoke-n0_0h53o/repository": {
+        "comparison": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        },
+        "selectedPath": "config/app.json",
+        "scrollTop": 0.0,
+        "lastChanges": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        }
+      }
+    },
+    "tabWidth": 4,
+    "showWhitespace": false,
+    "codeFontSize": 12,
+    "diffLayout": "unified",
+    "gitExecutable": null,
+    "languageServers": [
+      {
+        "id": "go",
+        "name": "Go (gopls)",
+        "enabled": true,
+        "languages": {
+          "go": "go"
+        },
+        "executable": "gopls",
+        "args": [],
+        "rootMarkers": [
+          "go.work",
+          "go.mod"
+        ],
+        "env": {
+          "GOFLAGS": "-mod=readonly",
+          "GOPROXY": "off",
+          "GOTOOLCHAIN": "local"
+        },
+        "initializationOptions": {},
+        "settings": {
+          "gopls": {
+            "staticcheck": false
+          }
+        }
+      },
+      {
+        "id": "typescript",
+        "name": "TypeScript / JavaScript",
+        "enabled": true,
+        "languages": {
+          "cjs": "javascript",
+          "cts": "typescript",
+          "js": "javascript",
+          "jsx": "javascriptreact",
+          "mjs": "javascript",
+          "mts": "typescript",
+          "ts": "typescript",
+          "tsx": "typescriptreact"
+        },
+        "executable": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "package.json",
+          "tsconfig.json",
+          "jsconfig.json"
+        ],
+        "env": {},
+        "initializationOptions": {
+          "disableAutomaticTypingAcquisition": true,
+          "tsserver": {
+            "useSyntaxServer": "never"
+          }
+        },
+        "settings": {}
+      },
+      {
+        "id": "python",
+        "name": "Python (Pyright)",
+        "enabled": true,
+        "languages": {
+          "py": "python",
+          "pyi": "python"
+        },
+        "executable": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "pyrightconfig.json",
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "requirements.txt",
+          "Pipfile"
+        ],
+        "env": {},
+        "initializationOptions": {},
+        "settings": {
+          "python": {
+            "analysis": {
+              "autoSearchPaths": true
+            }
+          }
+        }
+      },
+      {
+        "id": "rust",
+        "name": "Rust (rust-analyzer)",
+        "enabled": true,
+        "languages": {
+          "rs": "rust"
+        },
+        "executable": "rust-analyzer",
+        "args": [],
+        "rootMarkers": [
+          "Cargo.toml",
+          "rust-project.json"
+        ],
+        "env": {
+          "CARGO_NET_OFFLINE": "true"
+        },
+        "initializationOptions": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        },
+        "settings": {
+          "rust-analyzer": {
+            "cargo": {
+              "buildScripts": {
+                "enable": false
+              }
+            },
+            "procMacro": {
+              "enable": false
+            },
+            "checkOnSave": false
+          }
+        }
+      }
+    ]
+  },
+  "queues": {
+    "ef5d1616e4894d3c7f1d4bfda467a2ea4a7190797fcd92814fa92e458b40467f": {
+      "comments": [],
+      "reviewed": {}
+    }
+  },
+  "repositoryIds": {
+    "/tmp/peer-native-smoke-n0_0h53o/repository": "cff06056e36d1ecc090de94ec6b5d83f63ea7a4632b242ca814d6feeeb347f50"
+  },
+  "themes": []
+}

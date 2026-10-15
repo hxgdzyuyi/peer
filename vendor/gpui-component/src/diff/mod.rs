@@ -547,6 +547,7 @@ fn render_diff(
     });
     let rows = state.rows().clone();
     let scrollbar = state.list().clone();
+    let viewport_scrollbar = state.scrollbar();
     let horizontal = state.horizontal_scroll().clone();
     let has_rows = !rows.is_empty();
     let label = match state.files() {
@@ -591,7 +592,7 @@ fn render_diff(
             )
         })
         .when(has_rows, |this| {
-            this.child(Scrollbar::vertical(&scrollbar))
+            this.child(Scrollbar::vertical(&viewport_scrollbar))
                 .when(!soft_wrap, |this| {
                     this.child(Scrollbar::horizontal(&horizontal))
                 })
@@ -609,6 +610,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_by(-window.rem_size() * 1.5);
             cx.notify();
         }))
@@ -616,6 +618,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_by(window.rem_size() * 1.5);
             cx.notify();
         }))
@@ -641,6 +644,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_by(-this.viewport().height * 0.9);
             cx.notify();
         }))
@@ -648,6 +652,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_by(this.viewport().height * 0.9);
             cx.notify();
         }))
@@ -655,6 +660,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_to(ListOffset::default());
             cx.notify();
         }))
@@ -662,6 +668,7 @@ fn render_diff(
             if !body_focused(this, window, cx) {
                 return;
             }
+            this.follow_viewport();
             this.list().scroll_to_end();
             cx.notify();
         }))
@@ -707,6 +714,7 @@ fn render_diff(
                                 let painted = state.geometry().borrow().painted_width();
                                 code_width(painted, gutter_width, rem, mode)
                             };
+                            state.observe_viewport(cx);
                             if state.record_paint(bounds.size, painted) {
                                 cx.notify();
                             }

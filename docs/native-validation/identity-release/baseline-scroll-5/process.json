@@ -1,0 +1,6 @@
+{
+  "executable": "/workspace/peer-env/bin/peer-c9253aa",
+  "binary_sha256": "6b4e9fc0ea7b4ab75e3edd06eeac89d5ca27453f3b47c630361648f9a514de19",
+  "display": ":99",
+  "method": "actual native process launched by the X11 interaction harness"
+}

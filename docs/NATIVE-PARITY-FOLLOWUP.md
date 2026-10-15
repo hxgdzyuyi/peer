@@ -1,5 +1,9 @@
 # Review safety and workflow parity follow-up
 
+The later independent acceptance found two All-files review-target errors that
+these historical results missed. See [the identity follow-up](NATIVE-IDENTITY-FOLLOWUP.md)
+for the repair, independent center-pixel assertions, and new execution evidence.
+
 Original reference: `72e854cd1a3c5bcb6d2e6de539cc6caa90c49959`.
 The supplied independent desktop comparison examined native `db2e860`;
 this follow-up starts from the already delivered tree repair `1dbfa7a`.

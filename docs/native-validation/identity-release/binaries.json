@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "path": "/workspace/peer-env/bin/peer-c9253aa",
+    "sha256": "6b4e9fc0ea7b4ab75e3edd06eeac89d5ca27453f3b47c630361648f9a514de19"
+  },
+  "debug": {
+    "path": "target/debug/peer",
+    "sha256": "caadb7f5025733ab77f6a9a72b738db0a09fece85778730180e5e920dbbde2d9"
+  },
+  "release": {
+    "path": "target/release/peer",
+    "sha256": "dca15ae47f89368a8aee5f67106d827bfcd120fef2a3dd68270d886112ba6c55"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "executable": "/workspace/peer/target/release/peer",
+  "binary_sha256": "dca15ae47f89368a8aee5f67106d827bfcd120fef2a3dd68270d886112ba6c55",
+  "display": ":99",
+  "method": "actual native process launched by the X11 interaction harness"
+}

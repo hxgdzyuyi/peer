@@ -1,0 +1,11 @@
+dbus-daemon[62141]: [session uid=1000 pid=62141 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=62147 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[62141]: [session uid=1000 pid=62141 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[62164]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=62147 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[62141]: [session uid=1000 pid=62141 pidfd=5] Activating service name='org.xfce.Xfconf' requested by ':1.2' (uid=1000 pid=62147 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[62164]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+dbus-daemon[62141]: [session uid=1000 pid=62141 pidfd=5] Successfully activated service 'org.xfce.Xfconf'
+{"passed": 29}
+
+(xfconfd:62178): xfconfd-WARNING **: 00:29:10.505: Name org.xfce.Xfconf lost on the message dbus, exiting.
+X connection to :99 broken (explicit kill or server shutdown).
