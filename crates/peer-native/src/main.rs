@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod highlight_tests;
 mod themes;
 mod workspace;
 use gpui_kit::*;

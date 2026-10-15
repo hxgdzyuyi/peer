@@ -1,12 +1,13 @@
 #[cfg(test)]
 use crate::highlighter::HighlightTheme;
-use crate::highlighter::LanguageRegistry;
+use crate::highlighter::{LanguageRegistry, SyntaxBudget};
 
 use anyhow::{Context, Result, anyhow};
 use gpui::{HighlightStyle, SharedString};
 use gpui_base::input::RopeExt as _;
 use ropey::{ChunkCursor, Rope};
-use std::sync::Arc;
+use std::cell::Cell;
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::{Duration, Instant};
 use std::{
     collections::{BTreeSet, HashMap},
@@ -14,7 +15,8 @@ use std::{
 };
 use sum_tree::Bias;
 use tree_sitter::{
-    InputEdit, ParseOptions, Parser, Point, Query, QueryCursor, StreamingIterator, Tree,
+    InputEdit, ParseOptions, Parser, Point, Query, QueryCursor, QueryCursorOptions,
+    StreamingIterator, Tree,
 };
 
 const MAX_INJECTION_RANGES: usize = 4096;
@@ -25,11 +27,29 @@ const MAX_INJECTION_LANGUAGE_BYTES: usize = 64;
 const MAX_NON_COMBINED_INJECTION_PARSES: usize = 512;
 const INJECTION_PARSE_TIMEOUT: Duration = Duration::from_millis(20);
 
+struct CaptureWork<'a, 'b> {
+    budget: &'a SyntaxBudget<'b>,
+    exhausted: Cell<bool>,
+    injections: Cell<usize>,
+    captures: Cell<usize>,
+}
+impl CaptureWork<'_, '_> {
+    fn stop(&self) -> bool {
+        if self.exhausted.get() || self.budget.exhausted() {
+            self.exhausted.set(true);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// A syntax highlighter that supports incremental parsing, multiline text,
 /// and caching of highlight results.
 #[allow(unused)]
 pub struct SyntaxHighlighter {
     language: SharedString,
+    capture_children: HashMap<SharedString, SyntaxHighlighter>,
     query: Option<Query>,
     /// The full injections query. This is used to build injection layers during parsing.
     injections_query: Option<Arc<Query>>,
@@ -410,6 +430,7 @@ impl SyntaxHighlighter {
             parser: Parser::new(),
             tree: None,
             injection_layers: Vec::new(),
+            capture_children: HashMap::new(),
         }
     }
 
@@ -533,6 +554,7 @@ impl SyntaxHighlighter {
             parser,
             tree: None,
             injection_layers: Vec::new(),
+            capture_children: HashMap::new(),
         })
     }
 
@@ -1136,22 +1158,194 @@ impl SyntaxHighlighter {
         highlights
     }
 
-    /// Parses `text` without reusing a tree from unrelated text and returns
-    /// every capture in precedence order: later captures override earlier ones.
+    /// Full-source capture pass for immutable diff documents. This deliberately
+    /// does not claim incremental parsing. Parse and query execution share one
+    /// deadline, including injected languages. Cancellation or exhausted work
+    /// budgets discard partial results and leave plain text.
     ///
-    /// Injected languages are skipped: building their layers compiles a query
-    /// on every parse, which dominates the cost of many short fragments.
-    pub(crate) fn capture_names(&mut self, text: &Rope) -> Vec<(Range<usize>, SharedString)> {
-        self.tree = None;
-        self.text = Rope::new();
-        self.injection_layers.clear();
-        let injections_query = self.injections_query.take();
-        self.update(None, text, None);
-        self.injections_query = injections_query;
-        self.match_styles(0..text.len())
-            .into_iter()
-            .map(|item| (item.range, item.name))
-            .collect()
+    /// Queries are compiled once per cached language. Tree-sitter query
+    /// compilation itself is not interruptible; it uses bundled, fixed queries.
+    pub fn capture_names_with_budget(
+        &mut self,
+        text: &Rope,
+        budget: Duration,
+        cancelled: &AtomicBool,
+    ) -> Vec<(Range<usize>, SharedString)> {
+        self.capture_names_with_shared_budget(text, &SyntaxBudget::new(budget, cancelled))
+    }
+
+    pub(crate) fn capture_names_with_shared_budget(
+        &mut self,
+        text: &Rope,
+        budget: &SyntaxBudget<'_>,
+    ) -> Vec<(Range<usize>, SharedString)> {
+        let work = CaptureWork {
+            budget,
+            exhausted: Cell::new(false),
+            injections: Cell::new(0),
+            captures: Cell::new(0),
+        };
+        let result = self.capture_document(text, &work, 0);
+        if work.stop() { Vec::new() } else { result }
+    }
+
+    fn capture_document(
+        &mut self,
+        text: &Rope,
+        work: &CaptureWork<'_, '_>,
+        depth: usize,
+    ) -> Vec<(Range<usize>, SharedString)> {
+        if work.stop() || text.len() > 2 * 1024 * 1024 {
+            work.exhausted.set(true);
+            return Vec::new();
+        }
+        let Some(query) = &self.query else {
+            return Vec::new();
+        };
+        self.parser.reset();
+        let mut progress = |_: &tree_sitter::ParseState| {
+            if work.stop() {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let tree = self.parser.parse_with_options(
+            &mut |offset, _| parse_input_bytes(text, offset),
+            None,
+            Some(ParseOptions::new().progress_callback(&mut progress)),
+        );
+        let Some(tree) = tree else {
+            work.exhausted.set(true);
+            return Vec::new();
+        };
+        let mut result: Vec<(Range<usize>, SharedString)> = Vec::new();
+        let mut cursor = QueryCursor::new();
+        cursor.set_match_limit(4096);
+        let mut progress = |_: &tree_sitter::QueryCursorState| {
+            if work.stop() {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        {
+            let mut matches = cursor.matches_with_options(
+                query,
+                tree.root_node(),
+                TextProvider(text),
+                QueryCursorOptions::new().progress_callback(&mut progress),
+            );
+            while let Some(m) = matches.next() {
+                if work.stop() {
+                    break;
+                }
+                for capture in m.captures {
+                    if work.captures.get() >= 100_000 {
+                        work.exhausted.set(true);
+                        break;
+                    }
+                    work.captures.set(work.captures.get() + 1);
+                    let range = capture.node.byte_range();
+                    // Preserve match_styles' existing same-node precedence.
+                    // Injected children are appended later and still override
+                    // broad host captures such as Markdown fenced code.
+                    let name = result
+                        .last()
+                        .filter(|(previous, _)| previous == &range)
+                        .map(|(_, name)| name.clone())
+                        .unwrap_or_else(|| {
+                            query.capture_names()[capture.index as usize]
+                                .to_owned()
+                                .into()
+                        });
+                    result.push((range, name));
+                }
+            }
+        }
+        if cursor.did_exceed_match_limit() {
+            work.exhausted.set(true);
+        }
+        // Only the requested HTML script/style and Markdown code/block layers.
+        // The input editor's broader injection behavior remains independent.
+        if depth >= 2 || work.stop() || !matches!(self.language.as_str(), "html" | "markdown") {
+            return result;
+        }
+        let Some(injections) = &self.injections_query else {
+            return result;
+        };
+        let mut layers = Vec::new();
+        {
+            let mut matches = cursor.matches_with_options(
+                injections,
+                tree.root_node(),
+                TextProvider(text),
+                QueryCursorOptions::new().progress_callback(&mut progress),
+            );
+            while let Some(m) = matches.next() {
+                if work.stop() || work.injections.get() >= 32 {
+                    break;
+                }
+                let language = injections
+                    .property_settings(m.pattern_index)
+                    .iter()
+                    .find(|p| p.key.as_ref() == "injection.language")
+                    .and_then(|p| p.value.as_ref().map(|v| SharedString::from(v.to_string())))
+                    .or_else(|| {
+                        m.captures
+                            .iter()
+                            .find(|c| Some(c.index) == self.injection_language_capture_index)
+                            .and_then(|c| captured_injection_language(text, c.node.byte_range()))
+                    });
+                let Some(language) = language else {
+                    continue;
+                };
+                if language.as_str() == "markdown_inline" {
+                    continue;
+                }
+                for capture in m
+                    .captures
+                    .iter()
+                    .filter(|c| Some(c.index) == self.injection_content_capture_index)
+                {
+                    if work.injections.get() >= 32 {
+                        break;
+                    }
+                    let range = capture.node.byte_range();
+                    if range.len() > 512 * 1024 || range.is_empty() {
+                        continue;
+                    }
+                    work.injections.set(work.injections.get() + 1);
+                    layers.push((language.clone(), range));
+                }
+            }
+        }
+        if cursor.did_exceed_match_limit() {
+            work.exhausted.set(true);
+        }
+        for (language, range) in layers {
+            if work.stop() {
+                break;
+            }
+            if LanguageRegistry::singleton().language(&language).is_none() {
+                continue;
+            }
+            if self.capture_children.len() >= 32 && !self.capture_children.contains_key(&language) {
+                self.capture_children.clear();
+            }
+            let child = self
+                .capture_children
+                .entry(language.clone())
+                .or_insert_with(|| work.budget.initialize(|| SyntaxHighlighter::new(&language)));
+            let source = Rope::from_str(&text.slice(range.clone()).to_string());
+            result.extend(
+                child
+                    .capture_document(&source, work, depth + 1)
+                    .into_iter()
+                    .map(|(r, name)| (r.start + range.start..r.end + range.start, name)),
+            );
+        }
+        result
     }
 
     /// Returns the syntax highlight styles for a range of text.

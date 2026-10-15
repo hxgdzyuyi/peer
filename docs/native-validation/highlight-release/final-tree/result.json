@@ -1,0 +1,67 @@
+{
+  "passed": [
+    "native-window",
+    "selected-app/components/card.rs",
+    "selected-tree-row-visible",
+    "folder-collapse-hides-descendants",
+    "right-expands-directory",
+    "left-collapses-child-directory",
+    "palette-starts-with-collapsed-ancestor",
+    "independent-go-to-file-visible",
+    "palette-reveals-collapsed-deep-file",
+    "palette-keyboard-opens-fiftieth-result",
+    "selected-app/components/deep/one/two/three/four/five/six/very-long-unicode-\u732b-file-name.rs",
+    "selected-docs/guide.md",
+    "back-restores-deep-file",
+    "selected-many/file0999.rs",
+    "palette-cancel-keeps-selection",
+    "selected-row-visible",
+    "scrollbar-drag-reaches-root",
+    "selected-many/file0999.rs",
+    "keyboard-end-opens-last-file",
+    "keyboard-up-opens-previous-file",
+    "keyboard-down-opens-next-file",
+    "selected-app/components/card.rs",
+    "multifile-load-completed",
+    "multifile-wheel-updates-selected",
+    "session-matches-independent-center",
+    "scroll-keeps-filter-focus",
+    "comment-target-follows-visible-file",
+    "reviewed-target-follows-visible-file",
+    "45-detents-old-files-unchanged",
+    "near-44-session-matches-center",
+    "near-44-comment-exact-path-old-files-unchanged",
+    "near-44-reviewed-exact-path-old-files-unchanged",
+    "near-46-session-matches-center",
+    "near-46-comment-exact-path-old-files-unchanged",
+    "near-46-reviewed-exact-path-old-files-unchanged",
+    "return-45-session-matches-center",
+    "return-45-comment-exact-path-old-files-unchanged",
+    "return-45-reviewed-exact-path-old-files-unchanged",
+    "reverse-scroll-updates-active-file"
+  ],
+  "observations": [
+    {
+      "step": "45-detents",
+      "source_path": "many/file0026.rs",
+      "session_path": "many/file0026.rs"
+    },
+    {
+      "step": "near-44",
+      "source_path": "many/file0025.rs",
+      "session_path": "many/file0025.rs"
+    },
+    {
+      "step": "near-46",
+      "source_path": "many/file0026.rs",
+      "session_path": "many/file0026.rs"
+    },
+    {
+      "step": "return-45",
+      "source_path": "many/file0026.rs",
+      "session_path": "many/file0026.rs"
+    }
+  ],
+  "files": 1009,
+  "method": "native keyboard/mouse + OCR + persistent state; screenshots visually inspected"
+}

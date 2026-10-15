@@ -1,0 +1,16 @@
+dbus-daemon[242672]: [session uid=1000 pid=242672 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=242679 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[242672]: [session uid=1000 pid=242672 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[242691]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=242679 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[242691]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+dbus-daemon[242672]: [session uid=1000 pid=242672 pidfd=5] Activating service name='org.xfce.Xfconf' requested by ':1.2' (uid=1000 pid=242679 comm="xfwm4 --compositor=off --replace" label="kernel")
+dbus-daemon[242672]: [session uid=1000 pid=242672 pidfd=5] Successfully activated service 'org.xfce.Xfconf'
+Traceback (most recent call last):
+  File "/workspace/peer/tests/native_identity.py", line 259, in <module>
+    press('Next');after=assert_identity('pagedown',previous=paths['module05'])
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/peer/tests/native_identity.py", line 212, in assert_identity
+    raise AssertionError((label,'center/session',last,'expected',expected,'previous',previous))
+AssertionError: ('pagedown', 'center/session', ('src/module12.rs', 'src/module10.rs'), 'expected', None, 'previous', 'src/module05.rs')
+
+(xfconfd:242722): xfconfd-WARNING **: 04:17:15.543: Name org.xfce.Xfconf lost on the message dbus, exiting.

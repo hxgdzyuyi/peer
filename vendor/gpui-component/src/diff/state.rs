@@ -3,7 +3,10 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Range,
     rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use gpui::{
@@ -253,6 +256,7 @@ pub struct DiffState {
     /// Bumped when files or presentation options change, so a preparation
     /// started for earlier ones never installs its results.
     presentation_generation: usize,
+    presentation_cancelled: Arc<AtomicBool>,
     preparing: Option<usize>,
     _presentation: Task<()>,
     _selection_subscription: Subscription,
@@ -463,6 +467,7 @@ impl DiffState {
             annotations: HashSet::new(),
             window: None,
             presentation_generation: 0,
+            presentation_cancelled: Arc::new(AtomicBool::new(false)),
             preparing: None,
             _presentation: Task::ready(()),
             _selection_subscription,
@@ -1611,6 +1616,8 @@ impl DiffState {
     fn reset_presentation(&mut self) {
         self.presentations = vec![None; self.files.len()];
         self.presentation_generation += 1;
+        self.presentation_cancelled.store(true, Ordering::Relaxed);
+        self.presentation_cancelled = Arc::new(AtomicBool::new(false));
         self.preparing = None;
         self._presentation = Task::ready(());
     }
@@ -1635,16 +1642,22 @@ impl DiffState {
         }
         let options = self.presentation_options;
         self.preparing = Some(generation);
+        let cancelled = self.presentation_cancelled.clone();
         self._presentation = cx.spawn(async move |this, cx| {
             let mut highlighters = Some(SyntaxHighlighters::default());
             for (ix, file) in pending {
+                if cancelled.load(Ordering::Relaxed) {
+                    return;
+                }
+                let current_cancelled = cancelled.clone();
                 let mut moved = highlighters.take();
                 let (presentation, returned) = cx
                     .background_spawn(async move {
-                        let presentation = FilePresentation::prepare(
+                        let presentation = FilePresentation::prepare_with_cancel(
                             &file,
                             options,
                             moved.get_or_insert_default(),
+                            &current_cancelled,
                         );
                         (presentation, moved)
                     })
@@ -1996,5 +2009,11 @@ fn project_conflicts(
             file,
             pairs: start..ix,
         });
+    }
+}
+
+impl Drop for DiffState {
+    fn drop(&mut self) {
+        self.presentation_cancelled.store(true, Ordering::Relaxed);
     }
 }

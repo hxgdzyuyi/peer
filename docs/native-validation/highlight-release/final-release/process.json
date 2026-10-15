@@ -1,0 +1,7 @@
+{
+  "executable": "/workspace/peer-env/bin/peer-highlight-final",
+  "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e",
+  "harness_sha256": "9ef1d3659e57bf229c65834148c02c284e1f06c65627a953cd2d9dee592b1459",
+  "display": ":99",
+  "method": "actual native process launched by the X11 interaction harness"
+}

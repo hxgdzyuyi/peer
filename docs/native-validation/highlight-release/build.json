@@ -1,0 +1,11 @@
+{
+  "source_parent": "c8aeeec50add49914ab34c43475904fe496e480d",
+  "binary": "/workspace/peer-env/bin/peer-highlight-final",
+  "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e",
+  "build_command": "source /workspace/peer-env/native.sh; cargo build --release --locked -p peer",
+  "tests": "cargo test --locked --workspace: 76 passed, 2 ignored",
+  "source_inputs_sha256": "2f7f47c5a5469c79f750f0274d69e43518deb1b3eb04af7185e2a299dffcafda",
+  "recording": "15 fps wall-clock X11 capture; no time scaling; dropped frames may occur",
+  "original_video": "not re-read: previously denied 403 scope_violation",
+  "real_macos_runtime": "unverified"
+}

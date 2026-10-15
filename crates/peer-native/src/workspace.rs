@@ -1998,6 +1998,7 @@ impl Workspace {
             |this, preferences, window, cx| {
                 this.preferences = preferences;
                 this.settings_visible = false;
+                this.focus.focus(window, cx);
                 this.apply_theme(window, cx);
                 this.diff.update(cx, |s, cx| {
                     s.set_mode(
@@ -3521,6 +3522,7 @@ impl Render for Workspace {
                 this.branches_visible = false;
                 this.cancel_navigation();
                 this.settings_visible = false;
+                this.focus.focus(w, c);
                 this.apply_theme(w, c);
                 this.recent_visible = false;
                 c.notify();
@@ -4176,6 +4178,67 @@ mod tests {
         assert_eq!(all.len(), 100);
         assert_eq!(all.iter().map(DiffFile::additions).sum::<usize>(), 10_000);
         assert_eq!(all.iter().map(DiffFile::deletions).sum::<usize>(), 10_000);
+    }
+    #[test]
+    fn full_old_new_context_preserves_multiline_comment_string_and_heredoc() {
+        use gpui_kit::component::{diff::DiffSide, highlighter::SyntaxHighlighter, Rope};
+        use std::{sync::atomic::AtomicBool, time::Duration};
+        for (language, path, old, new, capture) in [
+        (
+            "rust",
+            "context.rs",
+            "/* start\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nold marker\nend */\nfn main() {}\n",
+            "/* start\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nnew marker\nend */\nfn main() {}\n",
+            "comment",
+        ),
+        (
+            "python",
+            "context.py",
+            "message = \"\"\"start\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nold marker\nend\"\"\"\n",
+            "message = \"\"\"start\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nnew marker\nend\"\"\"\n",
+            "string",
+        ),
+        (
+            "bash",
+            "context.sh",
+            "cat <<'EOF'\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nold marker\nEOF\n",
+            "cat <<'EOF'\ncontext 0\ncontext 1\ncontext 2\ncontext 3\ncontext 4\ncontext 5\ncontext 6\ncontext 7\ncontext 8\nnew marker\nEOF\n",
+            "string",
+        ),
+    ] {
+        let mut content = content(Some(old), Some(new));
+        content.path = path.into();
+        let documents = files(&content, false).unwrap();
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].language().as_str(), language);
+        let patch = peer_core::presentation::unified_patch(&content);
+        assert!(patch
+            .lines()
+            .any(|line| line == format!(" {}", old.lines().next().unwrap())));
+        for (side, expected, marker) in [
+            (DiffSide::Original, old, "old marker"),
+            (DiffSide::Modified, new, "new marker"),
+        ] {
+            let source = if side == DiffSide::Original {
+                content.old_content.as_deref().unwrap()
+            } else {
+                content.new_content.as_deref().unwrap()
+            };
+            assert_eq!(source, expected, "{language}: complete context on {side:?}");
+            let start = source.find(marker).unwrap();
+            let captures = SyntaxHighlighter::new(language).capture_names_with_budget(
+                &Rope::from_str(source),
+                Duration::from_secs(2),
+                &AtomicBool::new(false),
+            );
+            assert!(
+                captures.iter().any(|(r, n)| r.start <= start
+                    && r.end >= start + marker.len()
+                    && n.starts_with(capture)),
+                "{language}: {captures:?}"
+            );
+        }
+    }
     }
 }
 

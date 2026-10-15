@@ -41,13 +41,13 @@ No Release publication is requested or performed.
 
 ## Acceptance record
 
+The six recordings below correspond to commit `6981b97406f440ab843b904605fb927691d2553b`.
 Linux release executable SHA-256:
 `0a915ce174692d11b333bd4778bff3ab08836247f1826ba413e5563819b5e4ac`.
 The final build includes history Escape capture and correctly positioned trigger/panel bounds. A second click on Commit history closes it; a prior release run exposed the missing absolute origin and was not accepted. `cargo test --locked
 --workspace`: **63 passed, 2 ignored**; workspace/vendor formatting passed.
 The archive validator accepted the synthetic valid ZIP and rejected missing root,
-executable mode and signature resources. Actual macOS extraction/signature
-verification still requires the new CI run.
+executable mode and signature resources. CI run [38676870395](https://github.com/hxgdzyuyi/peer/actions/runs/38676870395) passed extracted-ZIP and strict-signature checks; Windows core tests also passed (41 passed, 2 ignored). However, the user subsequently installed this artifact on macOS 14.5 and found it incompatible: both plist and Mach-O required 15.0. This successful build is **not** macOS 14.5 acceptance; see [the separate deployment-target correction](NATIVE-MACOS-14.5.md).
 
 Real release-window results (counts include setup and synchronization assertions):
 

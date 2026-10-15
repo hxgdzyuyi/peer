@@ -20,3 +20,9 @@ selection priority. Peer can supply a fixed file header without including it in
 the viewport identity geometry. See `docs/NATIVE-IDENTITY-FOLLOWUP.md` and
 `docs/NATIVE-READABLE-FOLLOWUP.md` for independent center-source window assertions,
 the retained 45-detent boundary and nearby 44/46 cases.
+
+Native diff capture quality follow-up: complete Swift/C#/GraphQL/Proto/CMake
+queries, bounded HTML/Markdown injection captures, cancellable parse/query and
+source projection, and generation-scoped background cancellation. This immutable
+diff path performs fresh full-source parsing, not incremental reuse. Fixed query
+compilation is cached per preparation pass but not interruptible, and is excluded from the shared parse/query/projection execution budget. Input-editor parsing remains separate.

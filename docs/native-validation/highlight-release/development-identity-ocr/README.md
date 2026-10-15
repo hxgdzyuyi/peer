@@ -1,0 +1,1 @@
+This run failed and is not counted as a pass. The first painted source and session are module10. Normal OCR read modulel10, and the old regex incorrectly skipped it for a later module12. The final oracle reads only the first source marker, using a contrast rendering as well, and fails rather than skipping an unreadable first marker. See the complete final-identity-rerun results.

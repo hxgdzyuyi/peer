@@ -6,6 +6,7 @@ in `vendor/gpui-component/`. Its limited Peer changes are documented there.
 
 Bundled JSON theme definitions are the same six themes used by the original
 application, extracted from Shiki's theme collection at migration time. Their
+native Tree-sitter capture mappings are explicit Peer additions; their
 original notices remain under `licenses/` and are copied into macOS bundles.
 
 | Component | Upstream | Notice |

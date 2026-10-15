@@ -104,11 +104,18 @@ def central_file():
     shot('center-source')
     crop=out/'center-source-crop.png'
     run('convert',str(out/'center-source.png'),'-crop','870x644+250+144','-resize','300%',str(crop))
-    value=run('tesseract',str(crop),'stdout','--psm','6').lower()
-    match=re.search(r'source\s+([0-9]+)',value)
-    assert match, 'No central source token in pixels: '+value
-    number=int(match[1])
-    return f'many/file{number:04}.rs'
+    contrast=out/'center-source-contrast.png'
+    run('convert',str(crop),'-colorspace','Gray','-threshold','65%',str(contrast))
+    readings=[run('tesseract',str(image),'stdout','--psm','6').lower() for image in [contrast,crop]]
+    (out/'center-source-ocr.txt').write_text('\n--- normal/contrast alternatives ---\n'.join(readings))
+    for value in readings:
+        # Do not skip an unreadable first source token for a later file.
+        match=re.search(r'source\s+(\S+)',value)
+        if match and re.fullmatch(r'[0-9ol]{1,4}',match[1]):
+            number=int(match[1].translate(str.maketrans({'o':'0','l':'1'})))
+            return f'many/file{number:04}.rs'
+    raise AssertionError('No reliable first central source token in pixels: '+str(readings))
+
 def selected():return state().get('preferences',{}).get('sessions',{}).get(str(root),{}).get('selectedPath')
 def choose(query):
     enter(100,168,query);key('Return');wait('selected-'+query,lambda: selected()==query)

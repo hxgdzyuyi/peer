@@ -1,0 +1,117 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "theme-GitHub Dark",
+    "source-visible-CMakeLists.txt",
+    "palette-open-sample.swift",
+    "selected-sample.swift",
+    "independent-source-response-sample.swift",
+    "actual-source-string-capture-color-sample.swift",
+    "palette-open-sample.cs",
+    "selected-sample.cs",
+    "independent-source-response-sample.cs",
+    "actual-source-string-capture-color-sample.cs",
+    "palette-open-sample.graphql",
+    "selected-sample.graphql",
+    "independent-source-response-sample.graphql",
+    "actual-source-string-capture-color-sample.graphql",
+    "palette-open-sample.proto",
+    "selected-sample.proto",
+    "independent-source-response-sample.proto",
+    "actual-source-string-capture-color-sample.proto",
+    "palette-open-CMakeLists.txt",
+    "selected-CMakeLists.txt",
+    "independent-source-response-CMakeLists.txt",
+    "actual-source-string-capture-color-CMakeLists.txt",
+    "palette-open-sample.html",
+    "selected-sample.html",
+    "independent-source-response-sample.html",
+    "actual-source-string-capture-color-sample.html",
+    "actual-injected-number-or-function-color-sample.html",
+    "palette-open-sample.md",
+    "selected-sample.md",
+    "independent-source-response-sample.md",
+    "actual-source-string-capture-color-sample.md",
+    "actual-injected-number-or-function-color-sample.md",
+    "palette-open-sample.swift",
+    "selected-sample.swift",
+    "palette-closed-sample.swift",
+    "source-visible-sample.swift",
+    "theme-Partial imported A",
+    "source-visible-sample.swift",
+    "theme-Dracula Theme",
+    "source-visible-sample.swift",
+    "theme-Partial imported A",
+    "source-visible-sample.swift",
+    "partial-import-a-dracula-partial-import-a-source-pixels-identical",
+    "rapid-palette-visible",
+    "large-source-session-observed-before-return",
+    "rapid-return-swift-session",
+    "source-visible-sample.swift",
+    "source-visible-sample.swift"
+  ],
+  "measurements": [
+    {
+      "path": "sample.swift",
+      "interaction_to_ocr_seconds": 7.481,
+      "enter_to_source_ocr_seconds": 3.964,
+      "enter_to_colored_pixels_seconds": 5.294,
+      "string_color_pixels": 132,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.cs",
+      "interaction_to_ocr_seconds": 12.418,
+      "enter_to_source_ocr_seconds": 8.219,
+      "enter_to_colored_pixels_seconds": 9.02,
+      "string_color_pixels": 126,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.graphql",
+      "interaction_to_ocr_seconds": 10.539,
+      "enter_to_source_ocr_seconds": 7.149,
+      "enter_to_colored_pixels_seconds": 7.932,
+      "string_color_pixels": 140,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.proto",
+      "interaction_to_ocr_seconds": 12.718,
+      "enter_to_source_ocr_seconds": 7.77,
+      "enter_to_colored_pixels_seconds": 8.592,
+      "string_color_pixels": 161,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "CMakeLists.txt",
+      "interaction_to_ocr_seconds": 7.117,
+      "enter_to_source_ocr_seconds": 3.875,
+      "enter_to_colored_pixels_seconds": 4.64,
+      "string_color_pixels": 128,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.html",
+      "interaction_to_ocr_seconds": 8.047,
+      "enter_to_source_ocr_seconds": 4.887,
+      "enter_to_colored_pixels_seconds": 5.846,
+      "string_color_pixels": 115,
+      "injected_number_or_function_pixels": 37
+    },
+    {
+      "path": "sample.md",
+      "interaction_to_ocr_seconds": 6.979,
+      "enter_to_source_ocr_seconds": 3.782,
+      "enter_to_colored_pixels_seconds": 4.733,
+      "string_color_pixels": 177,
+      "injected_number_or_function_pixels": 30
+    },
+    {
+      "action": "large-html-then-swift",
+      "interaction_to_ocr_seconds": 6.645
+    }
+  ],
+  "timing_note": "enter_to_source_ocr_seconds measures Return to first independent center-source OCR with no fixed sleep, including screenshot/OCR overhead. enter_to_colored_pixels_seconds also includes the source-identity and session checks before polling color pixels; it is an upper bound. Other times include palette, input and synchronization. These are software-rendered response upper bounds, not isolated render latency or incremental parsing benchmarks."
+}

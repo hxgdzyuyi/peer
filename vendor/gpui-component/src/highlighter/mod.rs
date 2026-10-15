@@ -1,3 +1,6 @@
+mod budget;
+pub(crate) use budget::SyntaxBudget;
+
 mod language_name;
 pub use gpui_base::input::{
     Diagnostic, DiagnosticEntry, DiagnosticRelatedInformation, DiagnosticSet, DiagnosticSeverity,

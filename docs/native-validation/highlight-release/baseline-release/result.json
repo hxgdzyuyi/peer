@@ -1,0 +1,88 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "theme-GitHub Dark",
+    "source-visible-CMakeLists.txt",
+    "palette-open-sample.swift",
+    "selected-sample.swift",
+    "independent-source-response-sample.swift",
+    "palette-open-sample.cs",
+    "selected-sample.cs",
+    "independent-source-response-sample.cs",
+    "palette-open-sample.graphql",
+    "selected-sample.graphql",
+    "independent-source-response-sample.graphql",
+    "palette-open-sample.proto",
+    "selected-sample.proto",
+    "independent-source-response-sample.proto",
+    "palette-open-CMakeLists.txt",
+    "selected-CMakeLists.txt",
+    "independent-source-response-CMakeLists.txt",
+    "palette-open-sample.html",
+    "selected-sample.html",
+    "independent-source-response-sample.html",
+    "palette-open-sample.md",
+    "selected-sample.md",
+    "independent-source-response-sample.md"
+  ],
+  "measurements": [
+    {
+      "path": "sample.swift",
+      "interaction_to_ocr_seconds": 6.918,
+      "enter_to_source_ocr_seconds": 3.904,
+      "enter_to_colored_pixels_seconds": 4.666,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.cs",
+      "interaction_to_ocr_seconds": 7.056,
+      "enter_to_source_ocr_seconds": 4.101,
+      "enter_to_colored_pixels_seconds": 4.861,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.graphql",
+      "interaction_to_ocr_seconds": 6.858,
+      "enter_to_source_ocr_seconds": 3.804,
+      "enter_to_colored_pixels_seconds": 4.584,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.proto",
+      "interaction_to_ocr_seconds": 7.501,
+      "enter_to_source_ocr_seconds": 4.563,
+      "enter_to_colored_pixels_seconds": 5.26,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "CMakeLists.txt",
+      "interaction_to_ocr_seconds": 6.479,
+      "enter_to_source_ocr_seconds": 3.285,
+      "enter_to_colored_pixels_seconds": 4.024,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": null
+    },
+    {
+      "path": "sample.html",
+      "interaction_to_ocr_seconds": 7.361,
+      "enter_to_source_ocr_seconds": 3.906,
+      "enter_to_colored_pixels_seconds": 4.849,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": 0
+    },
+    {
+      "path": "sample.md",
+      "interaction_to_ocr_seconds": 7.021,
+      "enter_to_source_ocr_seconds": 3.847,
+      "enter_to_colored_pixels_seconds": 4.867,
+      "string_color_pixels": 0,
+      "injected_number_or_function_pixels": 0
+    }
+  ],
+  "baseline": true
+}

@@ -161,9 +161,12 @@ impl Workspace {
                 }
                 body = body.child(modes).child(Input::new(&form.filter)).child(
                     Button::new("import-theme")
-                        .label("Import theme…")
+                        .label("Import VS Code theme…")
                         .on_click(cx.listener(|this, _, w, c| this.import_theme(w, c))),
                 );
+                body = body.child(div().text_xs().whitespace_normal().child(
+                    "VS Code compatibility subset: editor colors and basic token colors/italic/bold. Contextual selectors and semantic token colors are not applied."
+                ));
                 let query = form.filter.read(cx).value().to_lowercase();
                 for kind in ["light", "dark"] {
                     let mut choices = h_flex().gap_2().flex_wrap();

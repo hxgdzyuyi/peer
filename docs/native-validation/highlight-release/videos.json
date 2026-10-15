@@ -1,0 +1,90 @@
+[
+  {
+    "path": "baseline-release/interaction.mp4",
+    "sha256": "822a42cac8d3c56eccc3d329387a89d06cd66726dd6f2be2a6f3b9f325a1ec0b",
+    "metadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "66.200000"
+      }
+    },
+    "full_decode": "passed",
+    "binary_sha256": "0a915ce174692d11b333bd4778bff3ab08836247f1826ba413e5563819b5e4ac",
+    "source_commit": "6981b97406f440ab843b904605fb927691d2553b"
+  },
+  {
+    "path": "final-release/interaction.mp4",
+    "sha256": "3650ea2562fe023ad08a9d9ed399116410205f2c94edebe58165ddbd0fbe2b3a",
+    "metadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "163.466667"
+      }
+    },
+    "full_decode": "passed",
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e",
+    "source_commit": "see source-inputs.sha256 and the containing highlighting commit"
+  },
+  {
+    "path": "final-identity-rerun/interaction.mp4",
+    "sha256": "ac665de04f42de6e903e2a4246ed65097551bc04134adbbfb91f24af0fbbf138",
+    "metadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "380.266667"
+      }
+    },
+    "full_decode": "passed",
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e",
+    "source_commit": "see source-inputs.sha256 and the containing highlighting commit"
+  },
+  {
+    "path": "final-tree/interaction.mp4",
+    "sha256": "148f3f3438f9d13f389e1de9f7442d80e12f42232f4556fc25ec290b616157c5",
+    "metadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "15/1"
+        }
+      ],
+      "format": {
+        "duration": "158.333333"
+      }
+    },
+    "full_decode": "passed",
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e",
+    "source_commit": "see source-inputs.sha256 and the containing highlighting commit"
+  }
+]

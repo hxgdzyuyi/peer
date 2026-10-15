@@ -1,0 +1,22 @@
+[
+  {
+    "command": "source /workspace/peer-env/native.sh; PEER_HIGHLIGHT_BASELINE=1 PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-readable-final PEER_RECORD=1 scripts/test-native-linux.sh highlights test-results/highlight/baseline-release",
+    "passed": 25,
+    "binary_sha256": "0a915ce174692d11b333bd4778bff3ab08836247f1826ba413e5563819b5e4ac"
+  },
+  {
+    "command": "source /workspace/peer-env/native.sh; PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-highlight-final PEER_RECORD=1 scripts/test-native-linux.sh highlights test-results/highlight/final-release",
+    "passed": 50,
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e"
+  },
+  {
+    "command": "source /workspace/peer-env/native.sh; PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-highlight-final PEER_RECORD=1 scripts/test-native-linux.sh identity test-results/highlight/final-identity-rerun",
+    "passed": 79,
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e"
+  },
+  {
+    "command": "source /workspace/peer-env/native.sh; PEER_NATIVE_BINARY=/workspace/peer-env/bin/peer-highlight-final PEER_RECORD=1 scripts/test-native-linux.sh tree test-results/highlight/final-tree",
+    "passed": 39,
+    "binary_sha256": "9f42c609537d8ff96ecd8a577443e80711f0b45d7fb5c4577e8c5c1451f7e52e"
+  }
+]

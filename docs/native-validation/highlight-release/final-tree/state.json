@@ -1,0 +1,560 @@
+{
+  "schemaVersion": 1,
+  "nativeState": {
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:added.txt": {
+      "body": "",
+      "fingerprint": "9a538ee5c1670a237ced04a1c2a5d665ec481df0adf50a34b05f5f21c4c05edd",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:app/components/card.rs": {
+      "body": "",
+      "fingerprint": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:app/components/deep/one/two/three/four/five/six/very-long-unicode-\u732b-file-name.rs": {
+      "body": "",
+      "fingerprint": "af0a32a13378a9e8d1046543b30f5489df5693b2bbdefc002a995634a1f906e1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:app/components/dialog.rs": {
+      "body": "",
+      "fingerprint": "b97521371da93306e80bf916d94d999908c6dd31acfa25a0ed89e1241c7026a5",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:app/lib/codec.rs": {
+      "body": "",
+      "fingerprint": "05a9fd9c0ee9981f1b6bae4bb3bf7b791ec8568d906d68c37a56a546cf6ec2b1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:docs/guide.md": {
+      "body": "",
+      "fingerprint": "b72d0763ae56ca0804c1dba3a33ecfde5e5f27c53273859473b0f5d1d219c0b0",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:docs/moved.md": {
+      "body": "",
+      "fingerprint": "d0e12f5e52f9cb7b7e2c443481bad3c720ec541416f9b19e65998113e2725657",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0000.rs": {
+      "body": "",
+      "fingerprint": "a8205b68c76777e8a8d76cd8fb1f00c823a3f32994e48f64dbb64aa6ce9d10f1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0003.rs": {
+      "body": "",
+      "fingerprint": "dcccc28dd54c4aaf2856c7f58426e10dc902066f781fbcf792684c70e815ad9c",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0006.rs": {
+      "body": "",
+      "fingerprint": "35cff0865b89361833187dea97313e59a747e801c4d33ac466fecf8c7866d021",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0008.rs": {
+      "body": "",
+      "fingerprint": "cc0f9d6621080b7cec7f4134f94ce5453868facd7b8817ae98d56a045101379f",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0011.rs": {
+      "body": "",
+      "fingerprint": "7dce6ee881857db84cb5bf00c9952329b54e5922d999a06171293c4c60d6d610",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0012.rs": {
+      "body": "",
+      "fingerprint": "ae113cca97ff192bb86f528e0ee55cb4a9d0a74f1c6d7892853aba8c110246e1",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0014.rs": {
+      "body": "",
+      "fingerprint": "a6395d4cdba8bb0857a6180922ba270c67af5f477ea620c3a248f33b26e321dc",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0017.rs": {
+      "body": "",
+      "fingerprint": "66a165f35e4196be6bc77239ff14e96d45c1ab174a0b5aab308a1d5321e8d230",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0019.rs": {
+      "body": "",
+      "fingerprint": "9a03235eaaad9963aeda0172165164c9397dd67f2d65fe9391b86b04fdf0f13a",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0021.rs": {
+      "body": "",
+      "fingerprint": "65d99034efb4edfe56d15838c59a0edb918a1b1c1f20086f80d32fc5705f2058",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0024.rs": {
+      "body": "",
+      "fingerprint": "2dc6150b64a0ae79df657462023dd1e695be18c4657777d185013b6dfff87a1b",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0025.rs": {
+      "body": "",
+      "fingerprint": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": null,
+      "scroll_side": null,
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0026.rs": {
+      "body": "",
+      "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 42.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0050.rs": {
+      "body": "",
+      "fingerprint": "9bb1861d6040de14fec28c1a1be5f6acf0468b0c0a957e17ebad090760c5dddc",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:many/file0999.rs": {
+      "body": "",
+      "fingerprint": "67ef34647091ae301a7b7189bf8c1e801029757e084494fbc0036f5bfa885463",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5:z-notes.txt": {
+      "body": "",
+      "fingerprint": "83778955c45ac8ed2f43b30325a9ec357e2474dc17dd45fb07a08422cf004bc3",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    }
+  },
+  "preferences": {
+    "sidebarWidths": {
+      "files": 244,
+      "feedback": 310
+    },
+    "appearance": {
+      "mode": "system",
+      "lightTheme": "github-light",
+      "darkTheme": "github-dark"
+    },
+    "recentRepositories": [
+      "/tmp/peer-desktop-jdtnqbiu/repo"
+    ],
+    "lastRepository": "/tmp/peer-desktop-jdtnqbiu/repo",
+    "sessions": {
+      "/tmp/peer-desktop-jdtnqbiu/repo": {
+        "comparison": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        },
+        "selectedPath": "many/file0026.rs",
+        "scrollTop": 0.0,
+        "lastChanges": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        }
+      }
+    },
+    "tabWidth": 4,
+    "showWhitespace": false,
+    "codeFontSize": 12,
+    "diffLayout": "unified",
+    "allFiles": true,
+    "gitExecutable": null,
+    "languageServers": [
+      {
+        "id": "go",
+        "name": "Go (gopls)",
+        "enabled": true,
+        "languages": {
+          "go": "go"
+        },
+        "executable": "gopls",
+        "args": [],
+        "rootMarkers": [
+          "go.work",
+          "go.mod"
+        ],
+        "env": {
+          "GOFLAGS": "-mod=readonly",
+          "GOPROXY": "off",
+          "GOTOOLCHAIN": "local"
+        },
+        "initializationOptions": {},
+        "settings": {
+          "gopls": {
+            "staticcheck": false
+          }
+        }
+      },
+      {
+        "id": "typescript",
+        "name": "TypeScript / JavaScript",
+        "enabled": true,
+        "languages": {
+          "cjs": "javascript",
+          "cts": "typescript",
+          "js": "javascript",
+          "jsx": "javascriptreact",
+          "mjs": "javascript",
+          "mts": "typescript",
+          "ts": "typescript",
+          "tsx": "typescriptreact"
+        },
+        "executable": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "package.json",
+          "tsconfig.json",
+          "jsconfig.json"
+        ],
+        "env": {},
+        "initializationOptions": {
+          "disableAutomaticTypingAcquisition": true,
+          "tsserver": {
+            "useSyntaxServer": "never"
+          }
+        },
+        "settings": {}
+      },
+      {
+        "id": "python",
+        "name": "Python (Pyright)",
+        "enabled": true,
+        "languages": {
+          "py": "python",
+          "pyi": "python"
+        },
+        "executable": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "pyrightconfig.json",
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "requirements.txt",
+          "Pipfile"
+        ],
+        "env": {},
+        "initializationOptions": {},
+        "settings": {
+          "python": {
+            "analysis": {
+              "autoSearchPaths": true
+            }
+          }
+        }
+      },
+      {
+        "id": "rust",
+        "name": "Rust (rust-analyzer)",
+        "enabled": true,
+        "languages": {
+          "rs": "rust"
+        },
+        "executable": "rust-analyzer",
+        "args": [],
+        "rootMarkers": [
+          "Cargo.toml",
+          "rust-project.json"
+        ],
+        "env": {
+          "CARGO_NET_OFFLINE": "true"
+        },
+        "initializationOptions": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        },
+        "settings": {
+          "rust-analyzer": {
+            "cargo": {
+              "buildScripts": {
+                "enable": false
+              }
+            },
+            "procMacro": {
+              "enable": false
+            },
+            "checkOnSave": false
+          }
+        }
+      }
+    ]
+  },
+  "queues": {
+    "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5": {
+      "comments": [
+        {
+          "id": "31039d6a-ecea-4bad-9b78-a2906e9f29a8",
+          "queueId": "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5",
+          "path": "app/components/card.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Tree comment indicator",
+          "createdAt": "2026-10-15T04:25:19.682375193+00:00",
+          "updatedAt": "2026-10-15T04:25:19.682375193+00:00",
+          "anchor": {
+            "snapshotId": "953ca027-61d0-4f4f-91b5-7b372ecf114e",
+            "fingerprint": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+            "baseCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "headCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "e6a640b0-14d6-4096-aac7-5b97a789a593",
+          "queueId": "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Visible multi-file target",
+          "createdAt": "2026-10-15T04:27:05.816221156+00:00",
+          "updatedAt": "2026-10-15T04:27:05.816221156+00:00",
+          "anchor": {
+            "snapshotId": "953ca027-61d0-4f4f-91b5-7b372ecf114e",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "headCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "7032d19a-89ee-42f6-afe5-7de343dad322",
+          "queueId": "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5",
+          "path": "many/file0025.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary near-44 actual target",
+          "createdAt": "2026-10-15T04:27:15.840716519+00:00",
+          "updatedAt": "2026-10-15T04:27:15.840716519+00:00",
+          "anchor": {
+            "snapshotId": "953ca027-61d0-4f4f-91b5-7b372ecf114e",
+            "fingerprint": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+            "baseCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "headCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "f1d797b7-78f7-487e-888d-b5c7f9bbca15",
+          "queueId": "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary near-46 actual target",
+          "createdAt": "2026-10-15T04:27:30.618988907+00:00",
+          "updatedAt": "2026-10-15T04:27:30.618988907+00:00",
+          "anchor": {
+            "snapshotId": "953ca027-61d0-4f4f-91b5-7b372ecf114e",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "headCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        },
+        {
+          "id": "b4d36b45-dfe1-469a-bd86-f6c48f8bc391",
+          "queueId": "7c970b252edc4efb86f5e93fe4d5e70e418cdd17dab8bc9f171bb24927e1dbf5",
+          "path": "many/file0026.rs",
+          "sourceView": "changes",
+          "scope": "file",
+          "body": "Boundary return-45 actual target",
+          "createdAt": "2026-10-15T04:27:41.752382869+00:00",
+          "updatedAt": "2026-10-15T04:27:41.752382869+00:00",
+          "anchor": {
+            "snapshotId": "953ca027-61d0-4f4f-91b5-7b372ecf114e",
+            "fingerprint": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd",
+            "baseCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "headCommit": "f748531ce17e1992a5527655ed261b8e979a4e77",
+            "contextBefore": [],
+            "contextAfter": []
+          },
+          "outdated": false
+        }
+      ],
+      "reviewed": {
+        "app/components/card.rs": "4ab71cbe1c6b58a272cd1a39257c2a5a0b58e1abb1f667d54f7530eb14b73e1f",
+        "many/file0025.rs": "9be037d3e2811f759824ceb79cf083677ee538adef526fdd3a2367d3e2b9f3e5",
+        "many/file0026.rs": "f5371f61301932d21e371ae5a40148b2b751b310b7ceaf02a8cf5ff20aba14fd"
+      }
+    }
+  },
+  "repositoryIds": {
+    "/tmp/peer-desktop-jdtnqbiu/repo": "28b64ea6c52b4191141d2f6a06b77dee5b8b8b51c63c82c25bb6c444631d5a37"
+  },
+  "themes": []
+}

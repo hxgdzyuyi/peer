@@ -1,13 +1,16 @@
 //! Presentation prepared on a background thread: theme-independent syntax
 //! captures and inline changes between paired lines.
-use std::{collections::HashMap, ops::Range};
+use std::{collections::HashMap, ops::Range, sync::atomic::AtomicBool, time::Duration};
 
 use gpui::{HighlightStyle, SharedString};
 use gpui_base::input::HighlightStyleResolver;
 use similar::{ChangeTag, TextDiff};
 
 use super::{DiffFile, DiffSide, document::SourceLine};
-use crate::{Rope, highlighter::SyntaxHighlighter};
+use crate::{
+    Rope,
+    highlighter::{SyntaxBudget, SyntaxHighlighter},
+};
 
 /// The unit inline changes are compared and emphasized in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -83,11 +86,22 @@ impl<T> LineSpans<T> {
 
 impl FilePresentation {
     /// Blocking; run it on a background thread.
+    #[cfg(test)]
     pub(crate) fn prepare(
         file: &DiffFile,
         options: PresentationOptions,
         highlighters: &mut SyntaxHighlighters,
     ) -> Self {
+        Self::prepare_with_cancel(file, options, highlighters, &AtomicBool::new(false))
+    }
+
+    pub(crate) fn prepare_with_cancel(
+        file: &DiffFile,
+        options: PresentationOptions,
+        highlighters: &mut SyntaxHighlighters,
+        cancelled: &AtomicBool,
+    ) -> Self {
+        let budget = SyntaxBudget::new(Duration::from_millis(100), cancelled);
         let mut presentation = Self::default();
         let mut name_ixs = HashMap::<SharedString, u16>::new();
         for side in [DiffSide::Original, DiffSide::Modified] {
@@ -96,6 +110,7 @@ impl FilePresentation {
                 side,
                 options.syntax_max_line_length,
                 highlighters,
+                &budget,
                 &mut |name| {
                     let next = name_ixs.len().min(u16::MAX as usize) as u16;
                     *name_ixs.entry(name.clone()).or_insert_with(|| {
@@ -105,6 +120,9 @@ impl FilePresentation {
                 },
             );
             presentation.syntax[side as usize] = LineSpans::from_lines(per_line);
+        }
+        if budget.exhausted() {
+            return Self::default();
         }
         if let Some(unit) = options.inline_unit {
             presentation.inline = inline_changes(file, unit, options.inline_max_line_length);
@@ -154,9 +172,13 @@ fn syntax_spans(
     side: DiffSide,
     max_line_length: usize,
     highlighters: &mut SyntaxHighlighters,
+    budget: &SyntaxBudget<'_>,
     name_ix: &mut dyn FnMut(&SharedString) -> u16,
 ) -> Vec<Vec<(Range<u32>, u16)>> {
     let lines = file.lines(side);
+    if budget.exhausted() || file.source(side).len() > 2 * 1024 * 1024 {
+        return Vec::new();
+    }
     let mut per_line: Vec<Vec<(Range<u32>, u16)>> = (0..lines.len()).map(|_| Vec::new()).collect();
     let language = match (file.language_override(), file.side_path(side)) {
         (Some(language), _) => language.clone(),
@@ -168,7 +190,7 @@ fn syntax_spans(
     }
     let highlighter = highlighters
         .entry(language.clone())
-        .or_insert_with(|| SyntaxHighlighter::new(&language));
+        .or_insert_with(|| budget.initialize(|| SyntaxHighlighter::new(&language)));
     let ranges = if file.hunks().is_empty() {
         vec![0..lines.len()]
     } else {
@@ -179,10 +201,18 @@ fn syntax_spans(
         let base = lines[range.start].source().start;
         let text = &source[base..lines[range.end - 1].source().end];
         let hunk_lines = &lines[range.clone()];
-        for (capture, name) in highlighter.capture_names(&Rope::from_str(text)) {
+        for (capture, name) in
+            highlighter.capture_names_with_shared_budget(&Rope::from_str(text), budget)
+        {
+            if budget.exhausted() {
+                return Vec::new();
+            }
             let capture = capture.start + base..capture.end + base;
             let first = hunk_lines.partition_point(|line| line.source().end <= capture.start);
             for (offset, line) in hunk_lines[first..].iter().enumerate() {
+                if offset % 64 == 0 && budget.exhausted() {
+                    return Vec::new();
+                }
                 let line_start = line.source().start;
                 if line_start >= capture.end {
                     break;

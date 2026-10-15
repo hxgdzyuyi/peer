@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "nativeState": {
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:CMakeLists.txt": {
+      "body": "",
+      "fingerprint": "ef295823a28f51db69e5d84df74e154ba3831da23021c07fa6da9c0aa697a4ac",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.cs": {
+      "body": "",
+      "fingerprint": "34f31034686cc4a06421a32f29f5919dfae95188154ff95d4c1d1475cbe1c7b7",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.graphql": {
+      "body": "",
+      "fingerprint": "3f05481ce35ebb4af49d32f6fe6714dba5e08f654470d0c3e891b5d3dfa7070c",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.html": {
+      "body": "",
+      "fingerprint": "31d5fc5099aeaafdca0de80913619f3e08f21ed3dd4bcfde55cec2076066af89",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.md": {
+      "body": "",
+      "fingerprint": "6c92b302c112a9ecdfaf6fb6ccc97fd76d21f99b00919328b485098725c635cb",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.proto": {
+      "body": "",
+      "fingerprint": "112414bcfeeaf01f98cb6f7ceda4f15fff95fcd3c7a7c44d507df94dabf8ac10",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:sample.swift": {
+      "body": "",
+      "fingerprint": "aa0d4ebeab50455e4dcd64e9251ebb824f36ef3a8e957485f9b017d6f418e63b",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "old",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    },
+    "draft-v2:401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350:workload.html": {
+      "body": "",
+      "fingerprint": "92e545c825eba043a7e2c84edf9604536f5a6f27fbaca6586c7f9eff4a8fc019",
+      "pending_new": null,
+      "side": null,
+      "line": null,
+      "editing": null,
+      "scroll_line": 1,
+      "scroll_side": "new",
+      "scroll_offset": 0.0,
+      "horizontal": 0.0
+    }
+  },
+  "preferences": {
+    "sidebarWidths": {
+      "files": 244,
+      "feedback": 310
+    },
+    "appearance": {
+      "mode": "dark",
+      "lightTheme": "github-light",
+      "darkTheme": "partial-import-a"
+    },
+    "recentRepositories": [
+      "/tmp/peer-native-smoke-sryu9l7j/repository"
+    ],
+    "lastRepository": "/tmp/peer-native-smoke-sryu9l7j/repository",
+    "sessions": {
+      "/tmp/peer-native-smoke-sryu9l7j/repository": {
+        "comparison": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        },
+        "selectedPath": "sample.swift",
+        "scrollTop": 0.0,
+        "lastChanges": {
+          "view": "changes",
+          "mode": "all",
+          "baseRef": null,
+          "includeUntracked": true
+        }
+      }
+    },
+    "tabWidth": 4,
+    "showWhitespace": false,
+    "codeFontSize": 12,
+    "diffLayout": "unified",
+    "allFiles": false,
+    "gitExecutable": null,
+    "languageServers": [
+      {
+        "id": "go",
+        "name": "Go (gopls)",
+        "enabled": true,
+        "languages": {
+          "go": "go"
+        },
+        "executable": "gopls",
+        "args": [],
+        "rootMarkers": [
+          "go.work",
+          "go.mod"
+        ],
+        "env": {
+          "GOFLAGS": "-mod=readonly",
+          "GOPROXY": "off",
+          "GOTOOLCHAIN": "local"
+        },
+        "initializationOptions": {},
+        "settings": {
+          "gopls": {
+            "staticcheck": false
+          }
+        }
+      },
+      {
+        "id": "typescript",
+        "name": "TypeScript / JavaScript",
+        "enabled": true,
+        "languages": {
+          "cjs": "javascript",
+          "cts": "typescript",
+          "js": "javascript",
+          "jsx": "javascriptreact",
+          "mjs": "javascript",
+          "mts": "typescript",
+          "ts": "typescript",
+          "tsx": "typescriptreact"
+        },
+        "executable": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "package.json",
+          "tsconfig.json",
+          "jsconfig.json"
+        ],
+        "env": {},
+        "initializationOptions": {
+          "disableAutomaticTypingAcquisition": true,
+          "tsserver": {
+            "useSyntaxServer": "never"
+          }
+        },
+        "settings": {}
+      },
+      {
+        "id": "python",
+        "name": "Python (Pyright)",
+        "enabled": true,
+        "languages": {
+          "py": "python",
+          "pyi": "python"
+        },
+        "executable": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ],
+        "rootMarkers": [
+          "pyrightconfig.json",
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "requirements.txt",
+          "Pipfile"
+        ],
+        "env": {},
+        "initializationOptions": {},
+        "settings": {
+          "python": {
+            "analysis": {
+              "autoSearchPaths": true
+            }
+          }
+        }
+      },
+      {
+        "id": "rust",
+        "name": "Rust (rust-analyzer)",
+        "enabled": true,
+        "languages": {
+          "rs": "rust"
+        },
+        "executable": "rust-analyzer",
+        "args": [],
+        "rootMarkers": [
+          "Cargo.toml",
+          "rust-project.json"
+        ],
+        "env": {
+          "CARGO_NET_OFFLINE": "true"
+        },
+        "initializationOptions": {
+          "cargo": {
+            "buildScripts": {
+              "enable": false
+            }
+          },
+          "procMacro": {
+            "enable": false
+          },
+          "checkOnSave": false
+        },
+        "settings": {
+          "rust-analyzer": {
+            "cargo": {
+              "buildScripts": {
+                "enable": false
+              }
+            },
+            "procMacro": {
+              "enable": false
+            },
+            "checkOnSave": false
+          }
+        }
+      }
+    ]
+  },
+  "queues": {
+    "401d88b17c020c144eb7d82873df149ab471b7c86315027866a0304930175350": {
+      "comments": [],
+      "reviewed": {}
+    }
+  },
+  "repositoryIds": {
+    "/tmp/peer-native-smoke-sryu9l7j/repository": "f2bf7ecdca55ca3929ff535e37bf0f415953eed3d2f63804734d69d75362d9b7"
+  },
+  "themes": [
+    {
+      "id": "partial-import-a",
+      "name": "Partial imported A",
+      "kind": "dark",
+      "definition": {
+        "name": "Partial imported A",
+        "type": "dark",
+        "colors": {
+          "editor.background": "#202124",
+          "editor.foreground": "#f4f4f4"
+        },
+        "tokenColors": [
+          {
+            "scope": "comment",
+            "settings": {
+              "foreground": "#123456"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

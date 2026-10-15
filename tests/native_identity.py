@@ -160,14 +160,21 @@ def central_file():
     screenshot('center-source')
     crop=output/'center-crop.png'
     run('convert',str(output/'center-source.png'),'-crop','870x644+250+144','-resize','300%',str(crop))
-    value=run('tesseract',str(crop),'stdout','--psm','6').lower()
-    (output/'center-ocr.txt').write_text(value)
-    found=re.search(r'identity\s+(main|config|module[0-9od@sl]{2})\b',value)
-    assert found, 'No independent source identity in center pixels: '+value
-    token=found[1] or ('main' if 'main' in found[0] else 'config')
-    if token.startswith('module'):
-        token='module'+token[6:].translate(str.maketrans({'o':'0','d':'0','@':'0','s':'8','l':'1'}))
-    return paths[token]
+    contrast=output/'center-contrast.png'
+    run('convert',str(crop),'-colorspace','Gray','-threshold','65%',str(contrast))
+    readings=[run('tesseract',str(image),'stdout','--psm','6').lower() for image in [contrast,crop]]
+    (output/'center-ocr.txt').write_text('\n--- normal/contrast alternatives ---\n'.join(readings))
+    for value in readings:
+        # Inspect the FIRST source marker, even if OCR mangles its token. Never
+        # silently skip a malformed top marker and choose a later visible file.
+        found=re.search(r'identity\s+(\S+)',value)
+        if not found:continue
+        token=found[1]
+        if re.fullmatch(r'module[0-9od@sl]{2}',token):
+            token='module'+token[6:].translate(str.maketrans({'o':'0','d':'0','@':'0','s':'8','l':'1'}))
+        if token in paths:return paths[token]
+    raise AssertionError('No reliable first source identity in center pixels: '+str(readings))
+
 def tree_selected(path):
     # Check the selected row's green accent, then OCR that row alone.
     # ImageMagick reports matching accent pixels; no state-derived crop y.

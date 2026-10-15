@@ -1,0 +1,166 @@
+{
+  "passed": [
+    "native-window-created",
+    "repository-opened",
+    "initial-source-ready",
+    "initial-source-session-matches-center",
+    "initial-source-tree-matches-center",
+    "palette-open-app/main.rs",
+    "selected-app/main.rs",
+    "palette-closed-app/main.rs",
+    "main-draft-entered",
+    "palette-open-config/app.json",
+    "selected-config/app.json",
+    "palette-closed-config/app.json",
+    "config-draft-entered",
+    "palette-open-app/main.rs",
+    "selected-app/main.rs",
+    "palette-closed-app/main.rs",
+    "palette-open-config/app.json",
+    "selected-config/app.json",
+    "palette-closed-config/app.json",
+    "quickopen-config-session-matches-center",
+    "quickopen-config-tree-matches-center",
+    "config-draft-restored",
+    "all-files-back-main-session-matches-center",
+    "all-files-back-main-tree-matches-center",
+    "back-restores-main-draft",
+    "departing-config-draft-saved",
+    "back-reviewed-writes-main-only",
+    "back-comment-writes-main-only",
+    "palette-open-config/app.json",
+    "selected-config/app.json",
+    "palette-closed-config/app.json",
+    "latest-config-draft-restored",
+    "back-after-save-session-matches-center",
+    "back-after-save-tree-matches-center",
+    "submitted-draft-does-not-resurrect",
+    "palette-open-huge.rs",
+    "selected-huge.rs",
+    "palette-closed-huge.rs",
+    "back-restores-all-files-mode-session-matches-center",
+    "back-restores-all-files-mode-tree-matches-center",
+    "back-invalidates-pending-source-load-session-matches-center",
+    "back-invalidates-pending-source-load-tree-matches-center",
+    "palette-open-src/module05.rs",
+    "selected-src/module05.rs",
+    "palette-closed-src/module05.rs",
+    "explicit-module05-session-matches-center",
+    "explicit-module05-tree-matches-center",
+    "pagedown-session-matches-center",
+    "pagedown-tree-matches-center",
+    "pagedown-central-source-moved",
+    "pagedown-reviewed-exact-target",
+    "pagedown-comment-exact-target",
+    "old-file-not-written",
+    "sticky-header-reviewed-removes-only-visible-target",
+    "sticky-header-reviewed-restores-only-visible-target",
+    "palette-open-src/module20.rs",
+    "selected-src/module20.rs",
+    "palette-closed-src/module20.rs",
+    "explicit-module20-session-matches-center",
+    "explicit-module20-tree-matches-center",
+    "pageup-session-matches-center",
+    "pageup-tree-matches-center",
+    "home-session-matches-center",
+    "home-tree-matches-center",
+    "end-session-matches-center",
+    "end-tree-matches-center",
+    "home-again-session-matches-center",
+    "home-again-tree-matches-center",
+    "down-arrow-session-matches-center",
+    "down-arrow-tree-matches-center",
+    "up-arrow-session-matches-center",
+    "up-arrow-tree-matches-center",
+    "palette-open-src/module39.rs",
+    "selected-src/module39.rs",
+    "palette-closed-src/module39.rs",
+    "explicit-last-file-not-overridden",
+    "explicit-bottom-review-target",
+    "scrollbar-session-matches-center",
+    "scrollbar-tree-matches-center"
+  ],
+  "observations": [
+    {
+      "step": "initial-source",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "quickopen-config",
+      "source_path": "config/app.json",
+      "session_path": "config/app.json"
+    },
+    {
+      "step": "all-files-back-main",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "back-after-save",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "back-restores-all-files-mode",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "back-invalidates-pending-source-load",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "explicit-module05",
+      "source_path": "src/module05.rs",
+      "session_path": "src/module05.rs"
+    },
+    {
+      "step": "pagedown",
+      "source_path": "src/module10.rs",
+      "session_path": "src/module10.rs"
+    },
+    {
+      "step": "explicit-module20",
+      "source_path": "src/module20.rs",
+      "session_path": "src/module20.rs"
+    },
+    {
+      "step": "pageup",
+      "source_path": "src/module13.rs",
+      "session_path": "src/module13.rs"
+    },
+    {
+      "step": "home",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "end",
+      "source_path": "src/module33.rs",
+      "session_path": "src/module33.rs"
+    },
+    {
+      "step": "home-again",
+      "source_path": "app/main.rs",
+      "session_path": "app/main.rs"
+    },
+    {
+      "step": "down-arrow",
+      "source_path": "src/module08.rs",
+      "session_path": "src/module08.rs"
+    },
+    {
+      "step": "up-arrow",
+      "source_path": "src/module02.rs",
+      "session_path": "src/module02.rs"
+    },
+    {
+      "step": "scrollbar",
+      "source_path": "src/module00.rs",
+      "session_path": "src/module00.rs"
+    }
+  ],
+  "oracle": "source identity from center-only OCR, selected tree row pixels, actual persisted comment/review paths"
+}

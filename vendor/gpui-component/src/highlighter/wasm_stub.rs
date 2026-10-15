@@ -38,9 +38,19 @@ impl SyntaxHighlighter {
         true
     }
 
-    pub(crate) fn capture_names(
+    pub fn capture_names_with_budget(
         &mut self,
         _text: &ropey::Rope,
+        _budget: std::time::Duration,
+        _cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Vec<(Range<usize>, SharedString)> {
+        Vec::new()
+    }
+
+    pub(crate) fn capture_names_with_shared_budget(
+        &mut self,
+        _text: &ropey::Rope,
+        _budget: &super::SyntaxBudget<'_>,
     ) -> Vec<(Range<usize>, SharedString)> {
         Vec::new()
     }

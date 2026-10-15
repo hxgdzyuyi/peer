@@ -93,3 +93,9 @@ The final forms and workflows were exercised again after fixing rapid-switch las
 Each reported number counts named harness assertions, including lifecycle setup; it is not a count of independent product features. Initial numeric screenshots/video remain real earlier native runs; current subdirectory results are the repeatable acceptance set. No failed-run screenshot is counted as a pass.
 
 Repeated runs also exposed OCR harness ambiguity between theme filter text and the actual card, plus footer segmentation under concurrent compilation. The harness now uses verified theme-button hit targets, a footer crop and one OCR worker. The failed screenshots visibly showed successful native LSP results; they were not counted as passing runs. All four final suites then passed.
+
+
+Native follow-ups: [macOS 14.5 deployment target and verified artifact](NATIVE-MACOS-14.5.md)
+and [capture queries, bounded injections, themes and actual release-window evidence](NATIVE-HIGHLIGHT-FOLLOWUP.md).
+The compatibility commit is separate from highlighting. Original Library video
+frame-by-frame review and real macOS 14.5 launch/interaction remain unverified.

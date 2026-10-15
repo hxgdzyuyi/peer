@@ -1,0 +1,4 @@
+   Compiling gpui-component v0.7.3 (/workspace/peer/vendor/gpui-component)
+   Compiling gpui-kit v0.7.3 (https://github.com/longbridge/gpui-kit?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36)
+   Compiling peer v0.1.2 (/workspace/peer/crates/peer-native)
+    Finished `release` profile [optimized] target(s) in 10m 56s

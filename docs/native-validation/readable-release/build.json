@@ -7,5 +7,6 @@
   "toolchain": "Rust 1.95.0",
   "gpui_kit_revision": "67265a36e260ffe03c5aaebdcd8d654dbf892eab",
   "video": "15 fps X11 wall-clock capture; no time scaling",
-  "source_note": "Source inputs are those of the UI commit containing this record; commit SHA is reported in the subsequent follow-up and final handoff."
+  "source_note": "Source inputs are those of the UI commit containing this record; commit SHA is reported in the subsequent follow-up and final handoff.",
+  "source_commit": "6981b97406f440ab843b904605fb927691d2553b"
 }
